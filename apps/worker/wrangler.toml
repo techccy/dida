@@ -1,0 +1,26 @@
+name = "dida"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# 仅本地开发兜底（wrangler dev）；生产必须用 wrangler secret put 设置
+# ADMIN_PASS_HASH 与 TOKEN_SIGNING_KEY，并移除本变量。
+# 本地联调口令：dida-local-pass
+DEV_ADMIN_PASSWORD = "dida-local-pass"
+
+[[durable_objects.bindings]]
+name = "SESSION_DO"
+class_name = "SessionDO"
+
+[[durable_objects.bindings]]
+name = "GUARD_DO"
+class_name = "GuardDO"
+
+[[durable_objects.bindings]]
+name = "REGISTRY_DO"
+class_name = "RegistryDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionDO", "GuardDO", "RegistryDO"]

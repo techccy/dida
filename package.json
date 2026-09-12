@@ -1,0 +1,16 @@
+{
+  "name": "dida",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:worker": "pnpm --filter @dida/worker dev",
+    "dev:web": "pnpm --filter @dida/web dev",
+    "build": "pnpm --filter @dida/shared build && pnpm --filter @dida/web build",
+    "test": "pnpm -r test",
+    "check": "pnpm -r exec tsc --noEmit"
+  }
+}
