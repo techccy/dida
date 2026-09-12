@@ -189,6 +189,7 @@ WS 升级请求的 URL **无任何 query**（管理员 token、邀请码都不�
 | `backlog` | `{ type:"backlog", msgs:[ <msg帧> ] }` | 重连时补发内存中尚存的未确认消息 |
 | `lost` | `{ type:"lost", n:number }` | 断线窗口内丢失的消息数（尽力而为，可能为 0/未知） |
 | `peer-left` | `{ type:"peer-left" }` | 对端断开（进入 grace） |
+| `peer-back` | `{ type:"peer-back" }` | 对端同公钥重连回归（客户端清"对方暂时离开"提示） |
 | `peer-gone` | `{ type:"peer-gone" }` | 对端彻底离开/会话将终止 |
 | `verified` | `{ type:"verified" }` | 对端已核对指纹 |
 | `end` | `{ type:"end", reason:"ttl"\|"admin-end"\|"key-loss"\|"grace-timeout" }` | 会话终止 |

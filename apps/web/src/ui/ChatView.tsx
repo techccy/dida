@@ -91,6 +91,8 @@ export default function ChatView({
           if (s === "error" && detail === "bad-cred") onUnauthorized?.();
         },
         onMessage: (m) => {
+          // 能收到对端消息即对端在线：兜底清"对方暂时离开"
+          setPeerLeft(false);
           setMessages((prev) => [
             ...prev,
             { text: m.text, ts: m.ts, mine: false },
@@ -104,6 +106,7 @@ export default function ChatView({
         onVerified: () => setPeerVerified(true),
         onLost: (n) => setLostTotal((t) => t + n),
         onPeerLeft: () => setPeerLeft(true),
+        onPeerBack: () => setPeerLeft(false),
         onEnd: (reason) => {
           // ended 全清（§4.2）：本方密钥/token 一并清除
           clearLocalKeyPair(role === "admin" ? "admin" : "part");

@@ -87,6 +87,7 @@ async function makeAdminClient() {
     message: [] as any[],
     lost: [] as number[],
     peerLeft: [] as unknown[],
+    peerBack: [] as unknown[],
     fp: [] as string[],
   };
   const client = new DidaClient({
@@ -103,6 +104,7 @@ async function makeAdminClient() {
     onVerified: () => {},
     onLost: (n) => events.lost.push(n),
     onPeerLeft: () => events.peerLeft.push(1),
+    onPeerBack: () => events.peerBack.push(1),
     onEnd: () => {},
     onError: () => {},
   });
@@ -178,6 +180,16 @@ describe("DidaClient 接收序", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(events.message.map((m: any) => m.text)).toEqual(["m1"]);
     expect(events.lost).toHaveLength(0);
+    client.dispose();
+  });
+
+  it("peer-left / peer-back 分别触发对应回调", async () => {
+    const { client, ws, events } = await makeAdminClient();
+    ws.deliver({ type: "peer-left" });
+    ws.deliver({ type: "peer-back" });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(events.peerLeft).toHaveLength(1);
+    expect(events.peerBack).toHaveLength(1);
     client.dispose();
   });
 });

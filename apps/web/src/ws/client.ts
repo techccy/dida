@@ -4,7 +4,7 @@
  * - 30s 心跳探测（ping/pong），死链 → 重连
  * - 断线自动重连（指数退避，覆盖 60s grace 窗口；同公钥 = 续聊）
  * - 消息：方向性密钥加解密、seq 顺序交付、ack 最高连续 seq
- * - backlog 补发 / lost 计数 / peer-left / end 处理
+ * - backlog 补发 / lost 计数 / peer-left / peer-back / end 处理
  *
  * 密钥与 salt 来自 sessionStorage（crypto/ 层）；刷新后同密钥重连即续聊。
  */
@@ -55,6 +55,8 @@ export interface ClientOptions {
   onVerified: (peerVerified: boolean) => void;
   onLost: (n: number) => void;
   onPeerLeft: () => void;
+  /** 对端同公钥重连回归（清"对方暂时离开"提示） */
+  onPeerBack: () => void;
   onEnd: (reason: string) => void;
   onError: (code: string) => void;
 }
@@ -180,6 +182,10 @@ export class DidaClient {
       }
       case "peer-left": {
         this.opts.onPeerLeft();
+        return;
+      }
+      case "peer-back": {
+        this.opts.onPeerBack();
         return;
       }
       case "peer-gone": {

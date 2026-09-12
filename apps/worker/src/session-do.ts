@@ -301,6 +301,13 @@ export class SessionDO extends DurableObject<Env> {
     // 只处理"该角色当前活连接"的断开；被同公钥新连接替换的旧连接忽略
     const live = this.liveConnections();
     if (live[att.role] !== ws) return;
+    // 快速刷新竞态：新连接已 accept 但尚未 pub（未被标 replaced）时旧连接先 close，
+    // 同角色已有继任连接，同样不算"离开"（继任者 pub 后正常接替）
+    for (const other of this.state.getWebSockets()) {
+      if (other === ws) continue;
+      const oa = other.deserializeAttachment() as Attachment | null;
+      if (oa?.role === att.role && !oa.replaced) return;
+    }
     void this.onPeerLeave(ws, att);
   }
 
@@ -410,6 +417,13 @@ export class SessionDO extends DurableObject<Env> {
     // 双方公钥齐备 → 向双方发 peer 帧（DO 只中继，不计算指纹、不碰明文，§5.2）
     if (meta.pubAdmin && meta.pubPart && meta.salt) {
       this.deliverPeerAndBacklog(ws, att, meta);
+      // 对端若已在聊（见过 peer 帧），本方重连 = 回归：通知其清"对方暂时离开"
+      const peerRole: Role = att.role === "admin" ? "participant" : "admin";
+      const peerConn = live[peerRole];
+      if (peerConn) {
+        const pa = peerConn.deserializeAttachment() as Attachment | null;
+        if (pa?.peerSent) this.send(peerConn, { type: "peer-back" });
+      }
       for (const conn of Object.values(live)) {
         if (!conn || conn === ws) continue;
         const a = conn.deserializeAttachment() as Attachment | null;

@@ -1,8 +1,8 @@
 /**
  * WS 帧类型（§6 完整帧 schema）
  * 客户端 → DO：auth / join / pub / msg / ack / verify / end / ping
- * DO → 客户端：ok / peer / msg / backlog / lost / peer-left / peer-gone /
- *              verified / end / error / pong
+ * DO → 客户端：ok / peer / msg / backlog / lost / peer-left / peer-back /
+ *              peer-gone / verified / end / error / pong
  *
  * 约定：
  * - 所有二进制字段均为 base64 字符串（公钥 32B / salt 32B / nonce 12B / 密文 ≤8KB+tag）。
@@ -121,6 +121,10 @@ export interface PeerLeftFrame {
   type: "peer-left";
 }
 
+export interface PeerBackFrame {
+  type: "peer-back";
+}
+
 export interface PeerGoneFrame {
   type: "peer-gone";
 }
@@ -150,6 +154,7 @@ export type ServerFrame =
   | BacklogFrame
   | LostFrame
   | PeerLeftFrame
+  | PeerBackFrame
   | PeerGoneFrame
   | VerifiedFrame
   | EndResultFrame
