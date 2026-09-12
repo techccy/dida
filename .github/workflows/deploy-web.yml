@@ -30,7 +30,7 @@ jobs:
       - name: Build web
         working-directory: apps/web
         env:
-          VITE_BASE: /dida/
+          VITE_BASE: /
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           VITE_WS_URL: ${{ vars.VITE_WS_URL }}
         run: pnpm build
