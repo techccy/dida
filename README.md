@@ -27,7 +27,7 @@ pnpm dev:worker       # miniflare 本地模拟 Worker + Durable Objects（默认
 pnpm dev:web          # Vite dev server（5173，代理 /admin/* 与 /ws 到 miniflare）
 ```
 
-浏览器开两个标签页联调：一个走 `/admin`（管理员，本地口令见 `apps/worker/wrangler.toml` 的 `DEV_ADMIN_PASSWORD`），一个走 `/`（对方凭码加入），并经由独立渠道核对安全指纹。详见 DESIGN.md §16。
+浏览器开两个标签页联调：一个走 `/admin`（管理员，本地口令见 `apps/worker/.dev.vars` 的 `DEV_ADMIN_PASSWORD`，首次请自建该文件——已 gitignore），一个走 `/`（对方凭码加入），并经由独立渠道核对安全指纹。详见 DESIGN.md §16。
 
 注意：PITR 在本地开发不可用（本地不存持久日志），属预期。
 
@@ -40,26 +40,29 @@ pnpm --filter web build   # tsc --noEmit + vite build
 
 ## 部署
 
-**前端 → GitHub Pages**：push 到 `main` 触发 `.github/workflows/deploy-web.yml`（`pnpm build` → `apps/web/dist` → Pages；构建产物含 `404.html` SPA 深链回退）。在仓库 Settings → Secrets and variables → **Variables** 配置：
+**生产拓扑（§17.0，2026-09 修订）**：`*.workers.dev` 在中国大陆被 DNS 污染 + 阻断，生产**不使用** workers.dev 域名。Worker 通过 **Workers Routes** 绑定 `dida.techccy.com/admin/*` 与 `/ws`（见 `apps/worker/wrangler.toml` 的 `routes`），前端**同源调用**，API 与页面同域。
 
-- `VITE_API_URL`：Worker 的 HTTPS 地址（如 `https://dida.<account>.workers.dev`）
-- `VITE_WS_URL`：Worker 的 WSS 地址（如 `wss://dida.<account>.workers.dev`），**不得带任何 query 参数**
+**前端 → GitHub Pages**：push 到 `main` 触发 `.github/workflows/deploy-web.yml`（`pnpm build` → `apps/web/dist` → Pages；构建产物含 `404.html` SPA 深链回退）。无需配置 `VITE_API_URL`/`VITE_WS_URL`（仓库 Variables 中如仍有 workers.dev 旧值，已被工作流忽略，建议删除）。
 
 **后端 → Cloudflare Worker**：
 
 ```bash
 cd apps/worker
-wrangler deployments create            # 首次部署（含 DO 迁移）
-wrangler secret put ADMIN_PASS_HASH    # PBKDF2 哈希（格式见 DESIGN.md §9）
-wrangler secret put TOKEN_SIGNING_KEY  # HMAC 签名密钥
+wrangler deploy                        # 部署（自动创建 §17.0 的两条路由）
+printf '%s' "<pbkdf2哈希>" | wrangler secret put ADMIN_PASS_HASH
+printf '%s' "<32字节b64>" | wrangler secret put TOKEN_SIGNING_KEY
 ```
 
-并在 CF 控制台**关闭该 Worker 的 Request Logging**。部署后删除 `wrangler.toml` 中的 `DEV_ADMIN_PASSWORD` 变量（本地兜底，仅 `wrangler dev` 使用）。
+- Secret 写入用 `wrangler secret put NAME < file`（文件**不带尾部换行**），避免杂质导致线上解析异常。
+- `ADMIN_PASS_HASH` 生成：`pbkdf2-sha256$100000$<salt-b64>$<hash-b64>`（迭代次数**必须 ≤ 100000**——Cloudflare Workers WebCrypto 硬上限，本地 miniflare 无此限制）。
+- 本地开发口令放 `apps/worker/.dev.vars`（`DEV_ADMIN_PASSWORD=...`，已 gitignore，仅 `wrangler dev` 加载）；生产 `[vars]` 不含任何口令类变量。
+
+并在 CF 控制台**关闭该 Worker 的 Request Logging**。
 
 **上线检查（§17.3）**：
 
 - [ ] 前端 JS 确实来自 GitHub Pages 域（非 Worker 域）
-- [ ] WS URL 无任何 query 参数
+- [ ] API 走 `dida.techccy.com/admin/*` 同源路由；WS 为 `wss://dida.techccy.com/ws`，无任何 query 参数
 - [ ] CF Request Logging 已关
 - [ ] Secrets 已设置、未进仓库
 - [ ] 限流生效（登录失败锁定、加入 IP 限速）

@@ -39,6 +39,11 @@ export default {
       return handleAdminApi(request, env);
     }
 
+    if (path === "/debug-ws") {
+      // TEMP DEBUG: 立即移除
+      return json({ wsDebug });
+    }
+
     if (path === WS_PATH && request.method === "GET") {
       return handleWsUpgrade(request, env);
     }

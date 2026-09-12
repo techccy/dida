@@ -437,22 +437,30 @@ dida/
 
 ## 17. 部署
 
+### 17.0 生产拓扑（2026-09 修订：同源路由，弃用 workers.dev）
+- **背景**：`*.workers.dev` 在中国大陆被 DNS 污染 + 443 阻断，管理员与用户均无法直连；`dida.techccy.com` 的 Cloudflare 链路可达。
+- **方案**：在 `techccy.com` 区域配置 **Workers Routes**，把 `dida.techccy.com/admin/*` 与 `dida.techccy.com/ws` 路由到 Worker，其余路径继续回源 GitHub Pages。前端为**同源调用**（`apiBase()=""`、`wss://同源/ws`），不再需要 `VITE_API_URL`/`VITE_WS_URL`（`api.ts` 保留该覆盖能力以备换域）。
+- workers.dev 访问入口随 routes 部署默认关闭（wrangler 行为），生产仅暴露自定义域单入口。
+- 仓库 Variables `VITE_API_URL`/`VITE_WS_URL` 已废弃（工作流不再读取）；残留值不影响构建。
+
 ### 17.1 前端 → GitHub Pages
 - CI（`.github/workflows/deploy-web.yml`）：`pnpm build`（web）→ 产物 `apps/web/dist` → 部署到 GitHub Pages。
 - SPA 路由需配置 fallback（GitHub Pages 的 `404.html` 兜底或按路径前缀托管），保证 `/admin`、`/c` 刷新可访问。
-- 构建时注入 **WS 地址** 环境变量：`VITE_WS_URL`（如 `wss://<worker>.<account>.workers.dev`）与 `VITE_API_URL`。
+- API/WS 地址：同源（见 §17.0），无需构建时注入。
 
 ### 17.2 后端 → Cloudflare Worker
-- `wrangler.toml`：定义 `session-do`、`guard-do` 两个 Durable Object；启用 **Hibernation WebSocket API**；配置 secrets。
+- `wrangler.toml`：定义 `SessionDO`、`GuardDO`、`RegistryDO` 三个 Durable Object（SQLite 存储类）；启用 **Hibernation WebSocket API**；配置 secrets 与 `routes`（§17.0）。
 - **Secrets**（`wrangler secret put`）：
-  - `ADMIN_PASS_HASH`：管理员口令的 PBKDF2-SHA256 哈希（含 salt/迭代次数/参数，例如 `pbkdf2-sha256$600000$<salt-b64>$<hash-b64>`，格式自定但需可校验）。
-  - `TOKEN_SIGNING_KEY`：HMAC 签名密钥（用于签发/校验管理员 token）。
+  - `ADMIN_PASS_HASH`：管理员口令的 PBKDF2-SHA256 哈希，格式 `pbkdf2-sha256$<iter>$<salt-b64>$<hash-b64>`。
+  - `TOKEN_SIGNING_KEY`：HMAC 签名密钥（b64，32 字节）。
+  - 注意 `wrangler secret put NAME < file`（文件**不带尾部换行**）避免杂质入库。
+- **本地开发口令**放 `apps/worker/.dev.vars`（`DEV_ADMIN_PASSWORD=...`，已 gitignore，wrangler dev 自动加载）；生产 `[vars]` 不放任何口令类变量。
+- **PBKDF2 迭代上限**：Cloudflare Workers WebCrypto 对 PBKDF2 有 **100,000 次迭代硬上限**（超过抛 `NotSupportedError`，本地 miniflare 无此限制——勿以本地表现推断线上）。`PBKDF2_ITERATIONS = 100_000`，由 Guard DO 登录限流补偿。
 - **关闭 Request Logging**（控制台/API 对该 Worker 关闭），配合应用零日志（§11）。
-- 域名：默认 `*.workers.dev` 即可；如需自定义域，CNAME 到 Worker。
 
 ### 17.3 上线检查
 - [ ] 前端 JS 确实来自 GitHub Pages 域（非 Worker 域）。
-- [ ] WS URL 无任何 query 参数。
+- [ ] API 走 `dida.techccy.com/admin/*` 同源路由；WS 为 `wss://dida.techccy.com/ws`，无任何 query 参数。
 - [ ] CF Request Logging 已关。
 - [ ] Secrets 已设置、未进仓库。
 - [ ] 限流生效（登录失败锁定、加入 IP 限速）。

@@ -8,6 +8,7 @@ dist/
 # miniflare / wrangler 本地状态（含 dev 密钥产物，严禁入库）
 .wrangler/
 apps/worker/.wrangler/
+apps/worker/.dev.vars
 
 # 日志
 *.log

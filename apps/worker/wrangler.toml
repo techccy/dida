@@ -3,11 +3,17 @@ main = "src/index.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
+# 生产路由：把 dida.techccy.com 的 API 路径路由到本 Worker，其余路径继续
+# 回源 GitHub Pages。同源调用，前端无需 VITE_API_URL/VITE_WS_URL。
+# 背景：*.workers.dev 在中国大陆被 DNS 污染 + 443 阻断，管理员/用户无法直连。
+routes = [
+  { pattern = "dida.techccy.com/admin/*", zone_name = "techccy.com" },
+  { pattern = "dida.techccy.com/ws", zone_name = "techccy.com" },
+]
+
 [vars]
-# 仅本地开发兜底（wrangler dev）；生产必须用 wrangler secret put 设置
-# ADMIN_PASS_HASH 与 TOKEN_SIGNING_KEY，并移除本变量。
-# 本地联调口令：dida-local-pass
-DEV_ADMIN_PASSWORD = "dida-local-pass"
+# 生产 [vars] 不放任何口令类变量。本地开发口令放 .dev.vars（不入库，
+# 见 .gitignore），wrangler dev 自动加载；生产登录走 ADMIN_PASS_HASH Secret。
 
 [[durable_objects.bindings]]
 name = "SESSION_DO"

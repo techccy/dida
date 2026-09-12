@@ -1,6 +1,8 @@
 # 前端 → GitHub Pages（DESIGN.md §17.1）
 # pnpm build（web）→ apps/web/dist（含 404.html SPA 回退）→ GitHub Pages
-# 构建时注入 WS/API 地址：VITE_WS_URL / VITE_API_URL（仓库 Variables，如 wss://<worker>.<account>.workers.dev）
+# 前端同源调用 API：Cloudflare Workers Routes 把 dida.techccy.com 的
+# /admin/* 与 /ws 路由到 Worker，无需构建时注入 VITE_API_URL/VITE_WS_URL
+# （*.workers.dev 在中国大陆被阻断，勿再使用；api.ts 保留 VITE_ 覆盖能力）。
 on:
   push:
     branches: [main]
@@ -31,8 +33,6 @@ jobs:
         working-directory: apps/web
         env:
           VITE_BASE: /
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
-          VITE_WS_URL: ${{ vars.VITE_WS_URL }}
         run: pnpm build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

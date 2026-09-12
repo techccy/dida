@@ -82,8 +82,11 @@ export const END_REASONS = {
 /** 管理员 token 有效期：8 小时（§9） */
 export const ADMIN_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 
-/** PBKDF2 参数（§9）：salt 16B / 600,000 次迭代 / 32B */
-export const PBKDF2_ITERATIONS = 600_000;
+/** PBKDF2 参数（§9）：salt 16B / 32B。
+ * 迭代次数 100_000 = Cloudflare Workers WebCrypto 的硬上限（workerd 拒绝
+ * >100k，报 NotSupportedError），低于浏览器端 OWASP 建议值；服务端登录有
+ * Guard DO 限流（5 次失败锁 15 分钟）补偿，且口令为高熵随机串。 */
+export const PBKDF2_ITERATIONS = 100_000;
 export const PBKDF2_SALT_BYTES = 16;
 export const PBKDF2_KEY_BYTES = 32;
 
