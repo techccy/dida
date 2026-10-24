@@ -22,6 +22,7 @@ import {
 import { verifyToken } from "../admin";
 import { getSigningKey, json, type Env } from "../env";
 import type { ExtractStyle } from "../extract-do";
+import type { Ref } from "../registry-do";
 
 export const ADMIN_API_PREFIX = "/admin/sessions";
 export const ADMIN_EXTRACT_PREFIX = "/admin/extracts";
@@ -90,22 +91,35 @@ export async function handleAdminApi(
   if (path === ADMIN_API_PREFIX && request.method === "GET") {
     if (!(await adminOk(request, env))) return json({ error: "unauthorized" }, 401);
     const refs = await env.REGISTRY_DO.getByName("main").listRefs();
-    const sessions = await Promise.all(
-      refs
-        .filter((r) => (r.kind ?? "session") === "session")
-        .map(async (ref) => {
-          const st = await env.SESSION_DO.get(
-            env.SESSION_DO.idFromString(ref.refId),
-          ).status();
-          return {
-            sessionId: ref.refId,
-            createdAt: ref.createdAt,
-            status: st.status,
-            joinedAt: st.joinedAt,
-            deadline: st.deadline,
-          };
-        }),
-    );
+    const sessions = (
+      await Promise.all(
+        refs
+          .filter((r) => (r.kind ?? "session") === "session")
+          .map(async (ref) => {
+            // 兼容旧引用格式（提取功能部署前存的是 { sessionId }，无 refId/kind）。
+            // 新旧版本的 Session DO ID 均由 codeHash 经 idFromName 确定性派生，
+            // 旧字段的值即有效 DO ID，可直接复用；取不到则跳过（防御坏数据）。
+            const legacy = ref as Ref & { sessionId?: string };
+            const refId = ref.refId ?? legacy.sessionId;
+            if (typeof refId !== "string" || refId.length === 0) return null;
+            try {
+              const st = await env.SESSION_DO.get(
+                env.SESSION_DO.idFromString(refId),
+              ).status();
+              return {
+                sessionId: refId,
+                createdAt: ref.createdAt,
+                status: st.status,
+                joinedAt: st.joinedAt,
+                deadline: st.deadline,
+              };
+            } catch {
+              // 引用指向无效/不存在的 DO ID：跳过而不是让整个列表 500
+              return null;
+            }
+          }),
+      )
+    ).filter((s): s is NonNullable<typeof s> => s !== null);
     return json({ sessions });
   }
 
@@ -217,24 +231,33 @@ export async function handleAdminExtractApi(
   if (path === ADMIN_EXTRACT_PREFIX && request.method === "GET") {
     if (!(await adminOk(request, env))) return json({ error: "unauthorized" }, 401);
     const refs = await env.REGISTRY_DO.getByName("main").listRefs();
-    const extracts = await Promise.all(
-      refs
-        .filter((r) => r.kind === "extract")
-        .map(async (ref) => {
-          const st = await env.EXTRACT_DO.get(
-            env.EXTRACT_DO.idFromString(ref.refId),
-          ).status();
-          return {
-            extractId: ref.refId,
-            createdAt: ref.createdAt,
-            status: st.status,
-            expiresAt: st.expiresAt,
-            maxCount: st.maxCount,
-            usedCount: st.usedCount,
-            style: st.style,
-          };
-        }),
-    );
+    const extracts = (
+      await Promise.all(
+        refs
+          .filter((r) => r.kind === "extract")
+          .map(async (ref) => {
+            if (typeof ref.refId !== "string" || ref.refId.length === 0)
+              return null;
+            try {
+              const st = await env.EXTRACT_DO.get(
+                env.EXTRACT_DO.idFromString(ref.refId),
+              ).status();
+              return {
+                extractId: ref.refId,
+                createdAt: ref.createdAt,
+                status: st.status,
+                expiresAt: st.expiresAt,
+                maxCount: st.maxCount,
+                usedCount: st.usedCount,
+                style: st.style,
+              };
+            } catch {
+              // 无效引用跳过，不让整个列表 500
+              return null;
+            }
+          }),
+      )
+    ).filter((e): e is NonNullable<typeof e> => e !== null);
     return json({ extracts });
   }
 

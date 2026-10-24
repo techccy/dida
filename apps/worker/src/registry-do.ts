@@ -8,7 +8,7 @@ import type { Env } from "./env";
 
 export type RefKind = "session" | "extract";
 
-interface Ref {
+export interface Ref {
   refId: string;
   codeHash: string;
   createdAt: number;
