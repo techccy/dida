@@ -29,8 +29,10 @@ export default defineConfig({
   plugins: [react(), spa404()],
   server: {
     proxy: {
-      // 仅代理 /admin/ 下的 API 路径（login / sessions）；SPA 路由 /admin 本体仍由前端处理（§16）
+      // 仅代理 /admin/ 下的 API 路径（login / sessions / extracts）；SPA 路由 /admin 本体仍由前端处理（§16）
       "/admin/": { target: "http://localhost:8787", changeOrigin: true },
+      // 提取 API（§5.6）
+      "/extract": { target: "http://localhost:8787", changeOrigin: true },
       "/ws": {
         target: "http://localhost:8787",
         changeOrigin: true,

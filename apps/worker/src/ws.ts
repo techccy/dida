@@ -145,9 +145,11 @@ async function afterOpen(
         return close(4000, "bad-code");
       codeHash = await sha256Hex(normalizeCode(first.code));
       const refs = await env.REGISTRY_DO.getByName("main").listRefs();
-      const ref = refs.find((r) => r.codeHash === codeHash);
+      const ref = refs.find(
+        (r) => r.codeHash === codeHash && (r.kind ?? "session") === "session",
+      );
       if (!ref) return close(4003, "code-expired");
-      sessionId = ref.sessionId;
+      sessionId = ref.refId;
       role = "participant";
     } else {
       return close(4000, "bad-first");

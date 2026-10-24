@@ -2,13 +2,16 @@
  * Worker 入口（§15）：路由分发。
  * - POST /admin/login            管理员登录（§9）
  * - GET/POST /admin/sessions...  管理员 API（§9）
+ * - GET/POST /admin/extracts...  提取包管理 API（§5.6）
+ * - POST /extract                提取（凭提取码兑换密文，§5.6）
  * - GET /ws                      WSS 升级 → Session DO 桥接（§6）
  * - OPTIONS                      CORS 预检（前端托管在 GitHub Pages，跨站）
  *
  * 零内容日志（§11）：本文件及所有路由不记录任何请求体/会话内容。
  */
-import { handleAdminApi } from "./routes/admin";
+import { handleAdminApi, handleAdminExtractApi } from "./routes/admin";
 import { handleLogin } from "./routes/login";
+import { handleExtract, EXTRACT_PATH } from "./routes/extract";
 import { handleWsUpgrade, WS_PATH } from "./ws";
 import { corsHeaders, json, type Env } from "./env";
 
@@ -16,6 +19,7 @@ import { corsHeaders, json, type Env } from "./env";
 export { SessionDO } from "./session-do";
 export { GuardDO } from "./guard-do";
 export { RegistryDO } from "./registry-do";
+export { ExtractDO } from "./extract-do";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -37,6 +41,14 @@ export default {
 
     if (path.startsWith("/admin/sessions")) {
       return handleAdminApi(request, env);
+    }
+
+    if (path.startsWith("/admin/extracts")) {
+      return handleAdminExtractApi(request, env);
+    }
+
+    if (path === EXTRACT_PATH && request.method === "POST") {
+      return handleExtract(request, env);
     }
 
     if (path === WS_PATH && request.method === "GET") {

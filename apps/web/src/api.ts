@@ -83,3 +83,82 @@ export async function endSession(id: string): Promise<void> {
   });
   if (!res.ok && res.status !== 404) throw new ApiError(res.status, "end-failed");
 }
+
+// ---------- 提取包 API（§5.6） ----------
+
+export interface ExtractInfo {
+  extractId: string;
+  createdAt: number;
+  status: "ready" | "destroyed";
+  expiresAt: number;
+  maxCount: number;
+  usedCount: number;
+  style: "packet" | "message";
+}
+
+export interface CreateExtractArgs {
+  /** SHA-256(完整配对码) hex——码明文不经服务端【决策】 */
+  codeHash: string;
+  ct: string;
+  nonce: string;
+  salt: string;
+  style: "packet" | "message";
+  ttlMs?: number;
+  maxCount?: number;
+}
+
+export async function createExtract(
+  args: CreateExtractArgs,
+): Promise<{ extractId: string; expiresAt: number; maxCount: number }> {
+  const res = await adminFetch("/admin/extracts", {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) throw new ApiError(res.status, "create-extract-failed");
+  return (await res.json()) as {
+    extractId: string;
+    expiresAt: number;
+    maxCount: number;
+  };
+}
+
+export async function listExtracts(): Promise<ExtractInfo[]> {
+  const res = await adminFetch("/admin/extracts");
+  if (!res.ok) throw new ApiError(res.status, "list-extracts-failed");
+  const data = (await res.json()) as { extracts: ExtractInfo[] };
+  return data.extracts;
+}
+
+export async function destroyExtract(id: string): Promise<void> {
+  const res = await adminFetch(`/admin/extracts/${id}/destroy`, {
+    method: "POST",
+  });
+  if (!res.ok && res.status !== 404) throw new ApiError(res.status, "destroy-failed");
+}
+
+/** 提取（无鉴权，凭码兑换密文；码走请求体不进 URL） */
+export async function extractRedeem(
+  code: string,
+): Promise<{
+  ct: string;
+  nonce: string;
+  salt: string;
+  style: "packet" | "message";
+  remaining: number;
+  expiresAt: number;
+}> {
+  const res = await fetch(apiBase() + "/extract", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) throw new ApiError(res.status, "invalid");
+  return (await res.json()) as {
+    ct: string;
+    nonce: string;
+    salt: string;
+    style: "packet" | "message";
+    remaining: number;
+    expiresAt: number;
+  };
+}

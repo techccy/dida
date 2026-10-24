@@ -4,12 +4,14 @@
 import type { SessionDO } from "./session-do";
 import type { GuardDO } from "./guard-do";
 import type { RegistryDO } from "./registry-do";
+import type { ExtractDO } from "./extract-do";
 import { b64ToBytes } from "@dida/shared";
 
 export interface Env {
   SESSION_DO: DurableObjectNamespace<SessionDO>;
   GUARD_DO: DurableObjectNamespace<GuardDO>;
   REGISTRY_DO: DurableObjectNamespace<RegistryDO>;
+  EXTRACT_DO: DurableObjectNamespace<ExtractDO>;
   /** Worker Secret：pbkdf2-sha256$<iter>$<salt-b64>$<hash-b64>（§9） */
   ADMIN_PASS_HASH?: string;
   /** Worker Secret：HMAC 签名密钥（b64，§9） */

@@ -560,7 +560,10 @@ export class SessionDO extends DurableObject<Env> {
     // 清注册表引用（管理员列表）；失败不影响全清（§7.2：引用不含内容）
     if (meta) {
       try {
-        await this.env.REGISTRY_DO.getByName("main").deleteRef(meta.codeHash);
+        await this.env.REGISTRY_DO.getByName("main").deleteRef(
+          meta.codeHash,
+          "session",
+        );
       } catch {
         /* ignore */
       }

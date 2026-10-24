@@ -6,6 +6,10 @@ import {
   decryptMsg,
   DecryptError,
   MsgTooLargeError,
+  deriveExtractKey,
+  encryptExtract,
+  decryptExtract,
+  ExtractTooLargeError,
   type KeyPair,
 } from "../src/crypto/crypto";
 import { bytesToB64, b64ToBytes } from "@dida/shared";
@@ -133,5 +137,52 @@ describe("encryptMsg / decryptMsg", () => {
     const out = await decryptMsg(bSide.decKey, "admin", nonce, ct);
     expect(out.packet).toBe(true);
     expect(out.text).toBe("数据库密码：hunter2");
+  });
+});
+
+describe("提取包加解密（§5.6：码派生密钥）", () => {
+  const CODE = "EABC12345";
+  const SALT2 = crypto.getRandomValues(new Uint8Array(32));
+
+  it("同一码 + 同一 salt：加密 → 解密往返", async () => {
+    const key = await deriveExtractKey(CODE, SALT2);
+    const { nonce, ct } = await encryptExtract(key, "私钥：-----BEGIN OPENSSH PRIVATE KEY-----");
+    const out = await decryptExtract(await deriveExtractKey(CODE, SALT2), nonce, ct);
+    expect(out).toBe("私钥：-----BEGIN OPENSSH PRIVATE KEY-----");
+  });
+
+  it("码不同（哪怕一位）→ 解密失败", async () => {
+    const key = await deriveExtractKey(CODE, SALT2);
+    const { nonce, ct } = await encryptExtract(key, "secret");
+    const wrongKey = await deriveExtractKey("EABC1234V", SALT2);
+    await expect(decryptExtract(wrongKey, nonce, ct)).rejects.toThrow(DecryptError);
+  });
+
+  it("salt 不同 → 解密失败", async () => {
+    const key = await deriveExtractKey(CODE, SALT2);
+    const { nonce, ct } = await encryptExtract(key, "secret");
+    const wrongKey = await deriveExtractKey(CODE, crypto.getRandomValues(new Uint8Array(32)));
+    await expect(decryptExtract(wrongKey, nonce, ct)).rejects.toThrow(DecryptError);
+  });
+
+  it("超过 32KB → 拒绝（ExtractTooLargeError）", async () => {
+    const key = await deriveExtractKey(CODE, SALT2);
+    await expect(encryptExtract(key, "a".repeat(32 * 1024 + 1))).rejects.toThrow(
+      ExtractTooLargeError,
+    );
+  });
+
+  it("32KB 内的长内容可正常加解密", async () => {
+    const key = await deriveExtractKey(CODE, SALT2);
+    const text = "汉".repeat(10000); // 30000 bytes
+    const { nonce, ct } = await encryptExtract(key, text);
+    expect(b64ToBytes(ct).length).toBeGreaterThan(30000);
+    const out = await decryptExtract(key, nonce, ct);
+    expect(out).toBe(text);
+  });
+
+  it("32KB 明文经 bytesToB64 走 salt 往返无失真", () => {
+    const salt = crypto.getRandomValues(new Uint8Array(32));
+    expect(b64ToBytes(bytesToB64(salt))).toEqual(salt);
   });
 });

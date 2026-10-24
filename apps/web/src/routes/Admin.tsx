@@ -6,16 +6,30 @@
  * token 只走 Authorization 头与 WS 首帧，不进 URL（§9）。
  */
 import { useCallback, useEffect, useState } from "react";
-import { TTL_OPTIONS } from "@dida/shared";
+import {
+  EXTRACT_MAX_BYTES,
+  EXTRACT_MAX_COUNT,
+  TTL_OPTIONS,
+  bytesToB64,
+  formatCode,
+  generateCode,
+  sha256Hex,
+} from "@dida/shared";
 import {
   apiBase,
+  createExtract,
   createSession,
+  destroyExtract,
   endSession,
+  listExtracts,
   listSessions,
+  type ExtractInfo,
   type SessionInfo,
 } from "../api";
 import {
   clearAdminToken,
+  deriveExtractKey,
+  encryptExtract,
   loadAdminToken,
   saveAdminToken,
 } from "../crypto/crypto";
@@ -55,13 +69,25 @@ export default function Admin() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [endedReason, setEndedReason] = useState<string | null>(null);
 
+  // ---------- 提取包（§5.6） ----------
+  const [extracts, setExtracts] = useState<ExtractInfo[]>([]);
+  const [extractContent, setExtractContent] = useState("");
+  const [extractStyle, setExtractStyle] = useState<"packet" | "message">("packet");
+  const [extractTtlMs, setExtractTtlMs] = useState<number>(TTL_OPTIONS[4].ms);
+  const [extractCount, setExtractCount] = useState(1);
+  const [extractBusy, setExtractBusy] = useState(false);
+  const [extractErr, setExtractErr] = useState<string | null>(null);
+  const [newExtractCode, setNewExtractCode] = useState<string | null>(null);
+  const [newExtractCopied, setNewExtractCopied] = useState(false);
+
   const refresh = useCallback(async () => {
     try {
-      const list = await listSessions();
+      const [list, extList] = await Promise.all([listSessions(), listExtracts()]);
       setSessions(list);
+      setExtracts(extList);
       setApiErr(null);
     } catch {
-      setApiErr("加载会话列表失败");
+      setApiErr("加载列表失败");
     }
   }, []);
 
@@ -82,6 +108,7 @@ export default function Admin() {
     const on401 = () => {
       setAuthed(false);
       setSessions([]);
+      setExtracts([]);
       setOpenId(null);
     };
     window.addEventListener("dida-admin-401", on401);
@@ -121,6 +148,7 @@ export default function Admin() {
     clearAdminToken();
     setAuthed(false);
     setSessions([]);
+    setExtracts([]);
     setOpenId(null);
   };
 
@@ -153,6 +181,57 @@ export default function Admin() {
       await refresh();
     } catch {
       setApiErr("结束会话失败");
+    }
+  };
+
+  // ---------- 提取包（§5.6）：前端生成码 → 码派生密钥加密 → 只上传哈希+密文 ----------
+
+  const createExtractPkg = async () => {
+    if (!extractContent || extractBusy) return;
+    setExtractErr(null);
+    if (new TextEncoder().encode(extractContent).length > EXTRACT_MAX_BYTES) {
+      setExtractErr("内容超过 32KB 上限");
+      return;
+    }
+    setExtractBusy(true);
+    try {
+      // 码明文只在本地存在：服务端只见 SHA-256 哈希与密文（服务端永不持有可解密能力）
+      const code = generateCode("extract");
+      const salt = crypto.getRandomValues(new Uint8Array(32));
+      const key = await deriveExtractKey(code, salt);
+      const { nonce, ct } = await encryptExtract(key, extractContent);
+      const codeHash = await sha256Hex(code);
+      await createExtract({
+        codeHash,
+        ct,
+        nonce,
+        salt: bytesToB64(salt),
+        style: extractStyle,
+        ttlMs: extractTtlMs,
+        maxCount: extractCount,
+      });
+      setNewExtractCode(formatCode(code));
+      setNewExtractCopied(false);
+      setExtractContent("");
+      await refresh();
+    } catch {
+      setExtractErr("创建提取包失败");
+    } finally {
+      setExtractBusy(false);
+    }
+  };
+
+  const copyNewExtractCode = () => {
+    if (!newExtractCode) return;
+    void navigator.clipboard.writeText(newExtractCode).then(() => setNewExtractCopied(true));
+  };
+
+  const doDestroyExtract = async (id: string) => {
+    try {
+      await destroyExtract(id);
+      await refresh();
+    } catch {
+      setExtractErr("销毁提取包失败");
     }
   };
 
@@ -288,6 +367,134 @@ export default function Admin() {
           ))}
         </tbody>
       </table>
+
+      {/* ---------- 提取包（§5.6） ---------- */}
+      <div
+        style={{
+          borderTop: "1px solid #d6d9de",
+          marginTop: 20,
+          paddingTop: 14,
+        }}
+      >
+        <strong>提取包</strong>
+        <div className="muted" style={{ marginTop: 4 }}>
+          键入内容生成提取码，对方凭码在本站主页提取；到期或次数用尽即销毁。
+        </div>
+
+        <textarea
+          value={extractContent}
+          onChange={(e) => {
+            setExtractContent(e.target.value);
+            setExtractErr(null);
+          }}
+          placeholder="输入要交付的内容（密钥、配置、文本…，上限 32KB）"
+          rows={4}
+          style={{ marginTop: 10, resize: "vertical" }}
+        />
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <select
+            value={extractStyle}
+            onChange={(e) => setExtractStyle(e.target.value as "packet" | "message")}
+            style={{ width: "auto" }}
+          >
+            <option value="packet">信息包（截断+复制）</option>
+            <option value="message">消息（只读展示）</option>
+          </select>
+          <select
+            value={extractTtlMs}
+            onChange={(e) => setExtractTtlMs(Number(e.target.value))}
+            style={{ width: "auto" }}
+          >
+            {TTL_OPTIONS.map((o) => (
+              <option key={o.ms} value={o.ms}>
+                有效期 {o.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={extractCount}
+            onChange={(e) => setExtractCount(Number(e.target.value))}
+            style={{ width: "auto" }}
+          >
+            {Array.from({ length: EXTRACT_MAX_COUNT }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                可提取 {n} 次
+              </option>
+            ))}
+          </select>
+          <button
+            className="primary"
+            onClick={() => void createExtractPkg()}
+            disabled={extractBusy || !extractContent.trim()}
+          >
+            {extractBusy ? "生成中…" : "生成提取码"}
+          </button>
+        </div>
+        {extractErr && <div className="banner">{extractErr}</div>}
+
+        {newExtractCode && (
+          <div
+            style={{
+              margin: "12px 0",
+              border: "1px solid #27ae60",
+              borderRadius: 8,
+              padding: 12,
+            }}
+          >
+            <div className="muted">新提取码（仅此一次，请复制后通过独立渠道发给对方）</div>
+            <div className="code" style={{ margin: "6px 0" }}>{newExtractCode}</div>
+            <button onClick={copyNewExtractCode}>
+              {newExtractCopied ? "已复制" : "复制"}
+            </button>
+          </div>
+        )}
+
+        <table>
+          <thead>
+            <tr>
+              <th>状态</th>
+              <th>剩余时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {extracts.length === 0 && (
+              <tr>
+                <td colSpan={3} className="muted">
+                  暂无提取包
+                </td>
+              </tr>
+            )}
+            {extracts.map((e) => (
+              <tr key={e.extractId}>
+                <td>
+                  {e.status === "destroyed"
+                    ? "已销毁"
+                    : e.usedCount > 0
+                      ? `已提取 ${e.usedCount}/${e.maxCount}`
+                      : "待提取"}
+                </td>
+                <td>
+                  {e.status === "ready" ? fmtRemain(e.expiresAt, now) : "—"}
+                </td>
+                <td>
+                  {e.status === "ready" && (
+                    <button
+                      className="danger"
+                      onClick={() => {
+                        if (window.confirm("确定销毁该提取包？内容将不可再提取。"))
+                          void doDestroyExtract(e.extractId);
+                      }}
+                    >
+                      提前销毁
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {openSession && (
         <div style={{ marginTop: 16 }}>

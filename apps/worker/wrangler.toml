@@ -8,6 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 # 背景：*.workers.dev 在中国大陆被 DNS 污染 + 443 阻断，管理员/用户无法直连。
 routes = [
   { pattern = "dida.techccy.com/admin/*", zone_name = "techccy.com" },
+  { pattern = "dida.techccy.com/extract", zone_name = "techccy.com" },
   { pattern = "dida.techccy.com/ws", zone_name = "techccy.com" },
 ]
 
@@ -27,6 +28,14 @@ class_name = "GuardDO"
 name = "REGISTRY_DO"
 class_name = "RegistryDO"
 
+[[durable_objects.bindings]]
+name = "EXTRACT_DO"
+class_name = "ExtractDO"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SessionDO", "GuardDO", "RegistryDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ExtractDO"]

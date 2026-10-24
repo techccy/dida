@@ -1,9 +1,15 @@
 /**
- * 邀请码与哈希工具（§8）
- * - 6 位 Crockford Base32（≈30 bit 熵，【决策 2026-10-24】12 位缩减而来）
- * - 码的明文从不上盘：DO 只存 SHA-256 哈希
+ * 配对码与哈希工具（§8）
+ * - 格式：前缀（C=对话码 / E=提取码）+ 8 位 Crockford Base32（≈40 bit 熵）
+ * - 显示含连字符（C-XXXXXXXX），连字符仅展示用，输入端归一化剥离
+ * - 码的明文从不上盘：DO 只存 SHA-256 哈希；提取码由前端生成，服务端只见哈希
  */
-import { CROCKFORD_ALPHABET, CODE_LENGTH } from "./constants";
+import {
+  CROCKFORD_ALPHABET,
+  CODE_PREFIX,
+  CODE_RANDOM_LENGTH,
+  type CodeKind,
+} from "./constants";
 
 function bytesToBigInt(bytes: Uint8Array): bigint {
   let n = 0n;
@@ -42,29 +48,56 @@ export function crockfordDecode(s: string): Uint8Array {
   return bytes;
 }
 
-/**
- * 生成 6 位邀请码：取随机数的低 30 bit → 6 个 Crockford 字符。
- * 低 30 bit 在均匀随机数中仍是均匀的，熵 = 30 bit。
- */
-export function generateInviteCode(randomBytes?: Uint8Array): string {
+/** 生成 n 个 Crockford 随机字符（低 n×5 bit，均匀） */
+function randomChars(n: number, randomBytes?: Uint8Array): string {
   const buf =
-    randomBytes ?? crypto.getRandomValues(new Uint8Array(CODE_LENGTH));
-  if (buf.length < CODE_LENGTH) throw new Error("随机字节不足");
-  const n = bytesToBigInt(buf) & ((1n << BigInt(CODE_LENGTH * 5)) - 1n);
+    randomBytes ?? crypto.getRandomValues(new Uint8Array(CODE_RANDOM_LENGTH));
+  if (buf.length < CODE_RANDOM_LENGTH) throw new Error("随机字节不足");
+  const nBig = bytesToBigInt(buf) & ((1n << BigInt(n * 5)) - 1n);
   let out = "";
-  for (let i = 0; i < CODE_LENGTH; i++) {
-    const idx = Number((n >> BigInt((CODE_LENGTH - 1 - i) * 5)) & 31n);
+  for (let i = 0; i < n; i++) {
+    const idx = Number((nBig >> BigInt((n - 1 - i) * 5)) & 31n);
     out += CROCKFORD_ALPHABET[idx];
   }
   return out;
 }
 
-/** 校验邀请码格式（6 位 Crockford） */
-export function isValidCode(s: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{6}$/.test(s);
+/**
+ * 生成配对码：前缀（类型标识）+ 8 位 Crockford 随机（40 bit 熵）。
+ * 【决策】提取码由前端生成（密钥从码派生，码明文不经服务端）；
+ * 对话码当前仍由服务端生成，本函数两端共用。
+ */
+export function generateCode(kind: CodeKind, randomBytes?: Uint8Array): string {
+  return CODE_PREFIX[kind] + randomChars(CODE_RANDOM_LENGTH, randomBytes);
 }
 
-/** 归一化用户输入：大写、去空格/分隔符（允许用户输入小写或带空格） */
+/** 判断码类型（按首字符前缀）；非法前缀返回 null */
+export function codeKind(s: string): CodeKind | null {
+  if (s.length !== 1 + CODE_RANDOM_LENGTH) return null;
+  const p = s[0];
+  if (p === CODE_PREFIX.chat) return "chat";
+  if (p === CODE_PREFIX.extract) return "extract";
+  return null;
+}
+
+/** 校验配对码格式（前缀 C/E + 8 位 Crockford） */
+export function isValidCode(s: string): boolean {
+  return /^[CE][0-9A-HJKMNP-TV-Z]{8}$/.test(s);
+}
+
+/** 校验配对码格式且类型匹配 */
+export function isValidCodeOfKind(s: string, kind: CodeKind): boolean {
+  return isValidCode(s) && codeKind(s) === kind;
+}
+
+/** 展示格式：前缀后插入连字符（C-XXXXXXXX）；输入端归一化会剥离 */
+export function formatCode(s: string): string {
+  return s.length === 1 + CODE_RANDOM_LENGTH
+    ? s[0] + "-" + s.slice(1)
+    : s;
+}
+
+/** 归一化用户输入：大写、去空格/分隔符（允许用户输入小写或带空格/连字符） */
 export function normalizeCode(s: string): string {
   return s.toUpperCase().replace(/[\s\-_]/g, "");
 }

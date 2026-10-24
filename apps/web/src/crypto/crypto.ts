@@ -5,11 +5,14 @@
 import {
   HKDF_INFO_ADMIN_TO_PARTICIPANT,
   HKDF_INFO_PARTICIPANT_TO_ADMIN,
+  HKDF_INFO_EXTRACT,
+  EXTRACT_AAD,
+  EXTRACT_MAX_BYTES,
   AAD_PREFIX,
   MSG_MAX_BYTES,
   type Role,
 } from "@dida/shared";
-import { b64ToBytes, bytesToB64, utf8Encode } from "@dida/shared";
+import { b64ToBytes, bytesToB64, utf8Encode, utf8Decode } from "@dida/shared";
 
 const cryptoSubtle = crypto.subtle;
 
@@ -47,6 +50,8 @@ export const SS_KEYS = {
   ADMIN_SALT: "dida.adminSalt",
   PART_KEY: "dida.partKey",
   CODE: "dida.code",
+  EXTRACT_CODE: "dida.extractCode",
+  EXTRACT: "dida.extract",
 } as const;
 
 export function saveAdminToken(token: string): void {
@@ -337,6 +342,99 @@ export function loadAdminSalt(): Uint8Array | null {
 export function clearLocalKeyPair(key: "admin" | "part"): void {
   ssDel(key === "admin" ? SS_KEYS.ADMIN_KEY : SS_KEYS.PART_KEY);
   if (key === "admin") ssDel(SS_KEYS.ADMIN_SALT);
+}
+
+// ---------- 提取包加解密（§5.6）【决策：码派生密钥，只存密文】 ----------
+
+/**
+ * 从完整配对码派生提取密钥：HKDF-SHA256(ikm=UTF8(code), salt, info)。
+ * 码明文只存在于本机内存/输入框，从不上传（服务端只见 SHA-256 哈希）。
+ */
+export async function deriveExtractKey(
+  code: string,
+  salt: Uint8Array,
+): Promise<CryptoKey> {
+  return hkdfAesKey(utf8Encode(code), salt, HKDF_INFO_EXTRACT);
+}
+
+export class ExtractTooLargeError extends Error {
+  constructor() {
+    super("提取内容超过 32KB 上限");
+    this.name = "ExtractTooLargeError";
+  }
+}
+
+/** 加密提取内容（管理员创建时；AAD 绑定 extract 域，nonce 12B 随机） */
+export async function encryptExtract(
+  key: CryptoKey,
+  plaintext: string,
+): Promise<{ nonce: string; ct: string }> {
+  const plain = utf8Encode(plaintext);
+  if (plain.length > EXTRACT_MAX_BYTES) throw new ExtractTooLargeError();
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(
+    await cryptoSubtle.encrypt(
+      { name: "AES-GCM", iv: toBuf(nonce), additionalData: toBuf(utf8Encode(EXTRACT_AAD)) },
+      key,
+      toBuf(plain),
+    ),
+  );
+  return { nonce: bytesToB64(nonce), ct: bytesToB64(ct) };
+}
+
+/** 解密提取内容（提取者端）；失败（错码/篡改）抛 DecryptError */
+export async function decryptExtract(
+  key: CryptoKey,
+  nonceB64: string,
+  ctB64: string,
+): Promise<string> {
+  try {
+    const plain = await cryptoSubtle.decrypt(
+      { name: "AES-GCM", iv: toBuf(b64ToBytes(nonceB64)), additionalData: toBuf(utf8Encode(EXTRACT_AAD)) },
+      key,
+      toBuf(b64ToBytes(ctB64)),
+    );
+    return utf8Decode(new Uint8Array(plain));
+  } catch {
+    throw new DecryptError();
+  }
+}
+
+// ---------- 提取码与提取结果的 sessionStorage（§3：不进 URL） ----------
+
+export function saveExtractCode(code: string): void {
+  ssSet(SS_KEYS.EXTRACT_CODE, code);
+}
+export function loadExtractCode(): string | null {
+  return ssGet<string>(SS_KEYS.EXTRACT_CODE);
+}
+export function clearExtractCode(): void {
+  ssDel(SS_KEYS.EXTRACT_CODE);
+}
+
+/** 提取结果缓存（同码刷新可回看；关标签页即清，不落磁盘） */
+export interface ExtractCache {
+  code: string;
+  text: string;
+  style: "packet" | "message";
+  remaining: number;
+  expiresAt: number;
+}
+
+export function saveExtractCache(cache: ExtractCache): void {
+  ssSet(SS_KEYS.EXTRACT, cache);
+}
+
+export function loadExtractCache(code: string): ExtractCache | null {
+  const c = ssGet<ExtractCache>(SS_KEYS.EXTRACT);
+  if (!c || c.code !== code) return null;
+  if (typeof c.text !== "string" || (c.style !== "packet" && c.style !== "message"))
+    return null;
+  return c;
+}
+
+export function clearExtractCache(): void {
+  ssDel(SS_KEYS.EXTRACT);
 }
 
 // ---------- 邀请码 sessionStorage（§3：不进 URL） ----------

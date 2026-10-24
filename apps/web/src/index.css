@@ -227,3 +227,35 @@ td {
   font-size: 13px;
   margin: 4px 0 10px;
 }
+
+/* 主页面：输入框 + 粘贴按钮（§3） */
+.entry-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.entry-row .code-input {
+  flex: 1;
+}
+
+/* 提取页（§5.6）：信息包样式 = 截断预览 + 复制；消息样式 = 只读全文无复制 */
+.extract-packet {
+  border: 1px dashed #8a8f99;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.extract-message {
+  border: 1px solid #d6d9de;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 10px 0;
+}
+.extract-plain {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 15px;
+}

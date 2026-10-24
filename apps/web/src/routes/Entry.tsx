@@ -1,11 +1,13 @@
 /**
- * 主页面（§3）：仅一个"邀请码输入框 + 加入按钮"。
- * 无 logo、无功能介绍、无多余信息；邀请码明文只存 sessionStorage，不进 URL。
+ * 主页面（§3）：仅一个"配对码输入框 + 粘贴按钮 + 加入按钮"。
+ * 无 logo、无功能介绍、无多余信息；码明文只存 sessionStorage，不进 URL。
+ * 按前缀路由【决策】：C=对话码 → /c；E=提取码 → /extract。
+ * 前缀必填：缺前缀直接报错，不做自动猜测。
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { isValidCode, normalizeCode } from "@dida/shared";
-import { saveCode } from "../crypto/crypto";
+import { codeKind, isValidCode, normalizeCode } from "@dida/shared";
+import { saveCode, saveExtractCode } from "../crypto/crypto";
 
 export default function Entry() {
   const [code, setCode] = useState("");
@@ -14,28 +16,57 @@ export default function Entry() {
 
   const join = () => {
     const c = normalizeCode(code);
-    if (!isValidCode(c)) {
-      setErr("邀请码无效（应为 6 位字符）");
+    const kind = codeKind(c);
+    if (kind === null) {
+      // 8 位无前缀 → 提示补首字母；其余按无效处理
+      setErr(
+        /^[0-9A-HJKMNP-TV-Z]{8}$/.test(c)
+          ? "请输入完整配对码（含首字母：对话码 C、提取码 E）"
+          : "配对码无效",
+      );
       return;
     }
-    saveCode(c);
-    nav("/c");
+    if (!isValidCode(c)) {
+      setErr("配对码无效");
+      return;
+    }
+    if (kind === "chat") {
+      saveCode(c);
+      nav("/c");
+    } else {
+      saveExtractCode(c);
+      nav("/extract");
+    }
+  };
+
+  const paste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) return;
+      setCode(text.trim());
+      setErr(null);
+    } catch {
+      setErr("无法读取剪贴板，请手动粘贴");
+    }
   };
 
   return (
     <div className="card">
-      <div className="muted">输入邀请码</div>
-      <input
-        className="code-input"
-        value={code}
-        onChange={(e) => {
-          setCode(e.target.value);
-          setErr(null);
-        }}
-        onKeyDown={(e) => e.key === "Enter" && join()}
-        placeholder="6 位邀请码"
-        autoFocus
-      />
+      <div className="muted">输入配对码</div>
+      <div className="entry-row">
+        <input
+          className="code-input"
+          value={code}
+          onChange={(e) => {
+            setCode(e.target.value);
+            setErr(null);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && join()}
+          placeholder="C/E-XXXXXXXX"
+          autoFocus
+        />
+        <button onClick={() => void paste()}>粘贴</button>
+      </div>
       {err && <div className="banner">{err}</div>}
       <button className="primary" onClick={join}>
         加入

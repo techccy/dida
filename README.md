@@ -2,9 +2,11 @@
 
 网页版 1对1 临时端到端加密对话平台
 
-- 只有**管理员**能创建会话，生成 **6 位邀请码**邀请对方加入
-- 消息内容**端到端加密**（X25519 + HKDF + AES-256-GCM），服务端不持久化任何密文、从不持有密钥
+- 只有**管理员**能创建会话，生成 **对话码（C-XXXXXXXX）**邀请对方加入
+- 消息内容**端到端加密**（X25519 + HKDF + AES-256-GCM），服务端不持久化任何消息密文、从不持有密钥
 - 管理员可发送**信息包**：气泡截断展示，接收方一键复制全文（适合传密码/密钥类内容）
+- 管理员可创建**提取包**：生成 **提取码（E-XXXXXXXX）**，对方凭码在主页一次性提取内容（密钥从码派生，服务端只存密文），有效期/提取次数任一先到即销毁
+- 配对码按前缀路由：主页输入 `C` 开头进对话、`E` 开头进提取页；支持一键粘贴，连字符自动忽略
 - 会话在 **TTL 到期 / 任一方离开 / 管理员提前结束** 时清除痕迹
 - 前端独立托管（GitHub Pages），后端为 Cloudflare Worker（Durable Objects + Hibernation WebSocket）
 
@@ -14,8 +16,8 @@
 
 ```
 apps/web        前端 SPA（React + Vite），托管在 GitHub Pages
-apps/worker     Cloudflare Worker + 3 个 Durable Objects（Session / Guard / Registry）
-packages/shared 帧协议、常量、邀请码纯函数（前后端共用）
+apps/worker     Cloudflare Worker + 4 个 Durable Objects（Session / Guard / Registry / Extract）
+packages/shared 帧协议、常量、配对码纯函数（前后端共用）
 ```
 
 ## 快速开始（本地开发）
@@ -41,7 +43,7 @@ pnpm --filter web build   # tsc --noEmit + vite build
 
 ## 部署
 
-**生产拓扑（§17.0，2026-09 修订）**：`*.workers.dev` 在中国大陆被 DNS 污染 + 阻断，生产**不使用** workers.dev 域名。Worker 通过 **Workers Routes** 绑定 `dida.techccy.com/admin/*` 与 `/ws`（见 `apps/worker/wrangler.toml` 的 `routes`），前端**同源调用**，API 与页面同域。
+**生产拓扑（§17.0，2026-09 修订）**：`*.workers.dev` 在中国大陆被 DNS 污染 + 阻断，生产**不使用** workers.dev 域名。Worker 通过 **Workers Routes** 绑定 `dida.techccy.com/admin/*`、`/extract` 与 `/ws`（见 `apps/worker/wrangler.toml` 的 `routes`），前端**同源调用**，API 与页面同域。
 
 **前端 → GitHub Pages**：push 到 `main` 触发 `.github/workflows/deploy-web.yml`（`pnpm build` → `apps/web/dist` → Pages；构建产物含 `404.html` SPA 深链回退）。无需配置 `VITE_API_URL`/`VITE_WS_URL`（仓库 Variables 中如仍有 workers.dev 旧值，已被工作流忽略，建议删除）。
 
@@ -63,15 +65,16 @@ printf '%s' "<32字节b64>" | wrangler secret put TOKEN_SIGNING_KEY
 **上线检查（§17.3）**：
 
 - [ ] 前端 JS 确实来自 GitHub Pages 域（非 Worker 域）
-- [ ] API 走 `dida.techccy.com/admin/*` 同源路由；WS 为 `wss://dida.techccy.com/ws`，无任何 query 参数
+- [ ] API 走 `dida.techccy.com/admin/*` 同源路由；提取 API 走 `dida.techccy.com/extract`；WS 为 `wss://dida.techccy.com/ws`，均无任何 query 参数
 - [ ] CF Request Logging 已关
 - [ ] Secrets 已设置、未进仓库
-- [ ] 限流生效（登录失败锁定、加入 IP 限速）
+- [ ] 限流生效（登录失败锁定、加入/提取 IP 限速）
 - [ ] grace 重连、TTL/提前结束清理均联调通过；信息包（打包发送/截断预览/一键复制）联调通过
+- [ ] 提取包全流程联调通过（创建 → 主页前缀路由 → 兑换解密 → 复制/只读 → 次数耗尽与到期销毁 → 提前销毁）
 
 ## 隐私声明
 
-> dida 在会话销毁时删除应用层数据；**服务端不持久化任何消息密文**，也从不持有可解密密钥。平台底层基础设施（含 30 天 PITR 机制）可能保留**无内容元数据**的历史副本，无法保证物理彻底消失。
+> dida 在会话销毁时删除应用层数据；**服务端不持久化任何消息密文**，也从不持有可解密密钥。**提取包**在服务端短暂保存的只有**密文**——解密密钥由提取码派生、从不存在于服务端；提取包到期或次数用尽即销毁。平台底层基础设施（含 30 天 PITR 机制）可能保留历史副本：会话至多为**无内容元数据**，提取包至多为**不可解密的密文**；无法保证物理彻底消失。
 >
 > 前端代码独立托管于后端之外，即使后端恶意也无法篡改前端逻辑。
 >
@@ -87,8 +90,10 @@ printf '%s' "<32字节b64>" | wrangler secret put TOKEN_SIGNING_KEY
 4. 无历史恢复：密钥丢失后，密文永久不可读
 5. 断线窗口内消息可能丢失（尽力补齐，非保证）
 6. 不抵抗主动中间人攻击（安全指纹核对已移除，2026-10-24 决策）
-7. 6 位邀请码 ≈30 bit 熵：暴力猜测由 CF 边缘防护 + join 限流兜底，明确接受残余风险
-8. PITR（30 天）可恢复 DO 存储历史，但本方案不落盘任何密文，至多恢复无内容元数据
-9. 单管理员、1对1（v1 范围）
+7. 配对码 40 bit 熵（前缀 C/E + 8 位）：在线暴力猜测由 CF 边缘防护 + 限流兜底
+8. 提取包密文可被离线枚举：静态密文 + 码派生密钥，若服务端存储被窃，攻击者可离线试解 2⁴⁰ 个码（40 bit 离线枚举已不划算但非零，明确接受残余风险）
+9. PITR（30 天）可恢复 DO 存储历史：会话至多为无内容元数据，提取包至多为不可解密密文
+10. 单管理员、1对1（v1 范围）
+11. 消息样式的提取内容无复制按钮但可被截屏：防截屏水印为后续需求
 
 完整清单与决策理由见 DESIGN.md §18–§20。
