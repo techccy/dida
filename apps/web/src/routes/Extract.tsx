@@ -127,7 +127,7 @@ export default function Extract() {
 
   if (busy) {
     return (
-      <div className="card">
+      <div className="card extract-page">
         <div className="muted">提取中…</div>
       </div>
     );
@@ -135,7 +135,7 @@ export default function Extract() {
 
   if (err || !cache) {
     return (
-      <div className="card">
+      <div className="card extract-page">
         <div className="banner">{err ?? "提取失败"}</div>
         <button className="primary" onClick={leave}>
           返回
@@ -145,7 +145,7 @@ export default function Extract() {
   }
 
   return (
-    <div className="card">
+    <div className="card extract-page">
       <div className="muted">提取内容</div>
 
       {cache.style === "packet" ? (
