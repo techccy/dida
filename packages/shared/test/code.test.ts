@@ -8,6 +8,7 @@ import {
   isValidCodeOfKind,
   formatCode,
   normalizeCode,
+  parseCustomCode,
   sha256,
   sha256Hex,
   bytesToB64,
@@ -110,6 +111,42 @@ describe("isValidCode / formatCode / normalizeCode", () => {
     const raw = "c - a b 3d 5f 7h";
     expect(isValidCode(normalizeCode(raw))).toBe(true);
     expect(codeKind(normalizeCode(raw))).toBe("chat");
+  });
+});
+
+describe("parseCustomCode（自定义配对码【决策 2026-10-24】）", () => {
+  it("归一化 + 校验通过：容忍大小写/连字符/空格", () => {
+    expect(parseCustomCode("c-abc12345", "chat")).toBe("CABC12345");
+    expect(parseCustomCode("E ABC1 2345", "extract")).toBe("EABC12345");
+    expect(parseCustomCode("C-ABC12345", "chat")).toBe("CABC12345");
+    expect(parseCustomCode("eabc12345", "extract")).toBe("EABC12345");
+  });
+
+  it("类型不匹配 → null", () => {
+    expect(parseCustomCode("C-ABC12345", "extract")).toBeNull();
+    expect(parseCustomCode("E-ABC12345", "chat")).toBeNull();
+  });
+
+  it("非法格式 → null（长度/前缀/排除字符）", () => {
+    expect(parseCustomCode("C-ABC1234", "chat")).toBeNull(); // 7 位
+    expect(parseCustomCode("C-ABC123456", "chat")).toBeNull(); // 9 位
+    expect(parseCustomCode("D-ABC12345", "chat")).toBeNull(); // 非法前缀
+    expect(parseCustomCode("C-IABC1234", "chat")).toBeNull(); // I 被排除
+    expect(parseCustomCode("C-OABC1234", "chat")).toBeNull(); // O 被排除
+    expect(parseCustomCode("C-ABC!2345", "chat")).toBeNull(); // 符号
+    expect(parseCustomCode("", "chat")).toBeNull();
+  });
+
+  it("通过 parseCustomCode 的码与随机码格式完全一致", () => {
+    const c = parseCustomCode("E-TEST2026", "extract");
+    expect(c).toBe("ETEST2026");
+    expect(isValidCodeOfKind(c!, "extract")).toBe(true);
+    expect(c).toHaveLength(1 + CODE_RANDOM_LENGTH);
+  });
+
+  it("弱记忆码含排除字符（如 dida 中的 I）→ null，须换拼写", () => {
+    expect(parseCustomCode("E-DIDA2026", "extract")).toBeNull();
+    expect(parseCustomCode("E-D1DA2026", "extract")).toBe("ED1DA2026");
   });
 });
 

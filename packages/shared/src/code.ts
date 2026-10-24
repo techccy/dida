@@ -90,6 +90,17 @@ export function isValidCodeOfKind(s: string, kind: CodeKind): boolean {
   return isValidCode(s) && codeKind(s) === kind;
 }
 
+/**
+ * 自定义配对码解析【决策 2026-10-24：全局允许自定义配对码】：
+ * 归一化（大写、剥空格/连字符）后校验「前缀 + 8 位 Crockford」格式与类型。
+ * 格式与随机码完全一致——主页分格输入、join/redeem 校验零改动。
+ * 非法输入返回 null（由调用方给统一错误提示）。
+ */
+export function parseCustomCode(input: string, kind: CodeKind): string | null {
+  const code = normalizeCode(input);
+  return isValidCodeOfKind(code, kind) ? code : null;
+}
+
 /** 展示格式：前缀后插入连字符（C-XXXXXXXX）；输入端归一化会剥离 */
 export function formatCode(s: string): string {
   return s.length === 1 + CODE_RANDOM_LENGTH

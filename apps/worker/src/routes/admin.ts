@@ -1,7 +1,9 @@
 /**
  * 管理员 API（§9）：Bearer token 鉴权（Authorization 头，token 不进 URL）。
  * - GET  /admin/sessions           会话列表（码哈希引用 + 实时状态/倒计时）
- * - POST /admin/sessions           创建会话 { ttlMs } → { sessionId, code, ttlMs }
+ * - POST /admin/sessions           创建会话 { ttlMs, code? } → { sessionId, code, ttlMs }
+ *                                   code 可选 = 自定义对话码（格式同随机码，§8）；
+ *                                   冲突（同码活跃会话）由 Session DO create → 409
  * - POST /admin/sessions/:id/end   提前结束（ended 全清）
  * - GET  /admin/extracts           提取包列表（状态/计数/到期时间，无内容字段）
  * - POST /admin/extracts           创建提取包 { codeHash, ct, nonce, salt, style, ttlMs?, maxCount? }
@@ -16,6 +18,8 @@ import {
   EXTRACT_MAX_COUNT,
   TTL_OPTIONS,
   generateCode,
+  isValidCodeOfKind,
+  normalizeCode,
   sha256Hex,
   type TtlOption,
 } from "@dida/shared";
@@ -56,9 +60,11 @@ export async function handleAdminApi(
   if (path === ADMIN_API_PREFIX && request.method === "POST") {
     if (!(await adminOk(request, env))) return json({ error: "unauthorized" }, 401);
     let ttlMs: unknown;
+    let rawCode: unknown;
     try {
-      const body = (await request.json()) as { ttlMs?: unknown };
+      const body = (await request.json()) as { ttlMs?: unknown; code?: unknown };
       ttlMs = body.ttlMs;
+      rawCode = body.code;
     } catch {
       return json({ error: "bad-request" }, 400);
     }
@@ -67,7 +73,19 @@ export async function handleAdminApi(
       | undefined;
     if (!opt) return json({ error: "bad-ttl" }, 400);
 
-    const code = generateCode("chat");
+    // 自定义对话码【决策 2026-10-24：全局允许自定义配对码】：
+    // 可选；格式与随机码一致（前缀 + 8 位 Crockford，归一化容忍大小写/连字符）。
+    // 码明文仅用于服务端哈希（与服务端生成路径一致），从不上盘、不进日志。
+    let code: string;
+    if (rawCode === undefined || rawCode === null || rawCode === "") {
+      code = generateCode("chat");
+    } else {
+      if (typeof rawCode !== "string") return json({ error: "bad-code" }, 400);
+      const custom = normalizeCode(rawCode);
+      if (!isValidCodeOfKind(custom, "chat"))
+        return json({ error: "bad-code" }, 400);
+      code = custom;
+    }
     const codeHash = await sha256Hex(code);
     // 会话 ID 由码哈希经 namespace 确定性派生（新 DO ID 方案，必须落在 namespace 内）：
     // 注册表与 Session DO 用同一 ID 互指；不含任何明文信息

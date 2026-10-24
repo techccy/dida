@@ -13,9 +13,11 @@ import {
   bytesToB64,
   formatCode,
   generateCode,
+  parseCustomCode,
   sha256Hex,
 } from "@dida/shared";
 import {
+  ApiError,
   apiBase,
   createExtract,
   createSession,
@@ -65,6 +67,8 @@ export default function Admin() {
   const [creating, setCreating] = useState(false);
   const [newCode, setNewCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // 自定义对话码【决策 2026-10-24：全局允许自定义配对码】：留空 = 随机生成
+  const [customChatCode, setCustomChatCode] = useState("");
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [endedReason, setEndedReason] = useState<string | null>(null);
@@ -79,6 +83,8 @@ export default function Admin() {
   const [extractErr, setExtractErr] = useState<string | null>(null);
   const [newExtractCode, setNewExtractCode] = useState<string | null>(null);
   const [newExtractCopied, setNewExtractCopied] = useState(false);
+  // 自定义提取码【决策 2026-10-24】：留空 = 随机生成；仍纯前端生成，码明文不经服务端
+  const [customExtractCode, setCustomExtractCode] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -154,14 +160,31 @@ export default function Admin() {
 
   const create = async () => {
     setCreating(true);
+    setApiErr(null);
     try {
+      // 自定义码留空 → 服务端随机生成；填写 → 归一化 + 格式校验后随请求发送
+      let code: string | undefined;
+      const raw = customChatCode.trim();
+      if (raw) {
+        const parsed = parseCustomCode(raw, "chat");
+        if (!parsed) {
+          setApiErr("自定义对话码无效：需为 C + 8 位（Crockford 字符，不含 I/L/O/U）");
+          return;
+        }
+        code = parsed;
+      }
       // 码明文只在创建响应里返回一次（§8）；刷新后不再可见
-      const created = await createSession(ttlMs);
+      const created = await createSession(ttlMs, code);
       setNewCode(created.code);
       setCopied(false);
+      setCustomChatCode("");
       await refresh();
-    } catch {
-      setApiErr("创建失败");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 400)
+        setApiErr("自定义对话码无效：需为 C + 8 位（Crockford 字符，不含 I/L/O/U）");
+      else if (e instanceof ApiError && e.status === 409)
+        setApiErr("该对话码已被活跃会话占用，请换一个");
+      else setApiErr("创建失败");
     } finally {
       setCreating(false);
     }
@@ -195,8 +218,20 @@ export default function Admin() {
     }
     setExtractBusy(true);
     try {
-      // 码明文只在本地存在：服务端只见 SHA-256 哈希与密文（服务端永不持有可解密能力）
-      const code = generateCode("extract");
+      // 码明文只在本地存在：服务端只见 SHA-256 哈希与密文（服务端永不持有可解密能力）。
+      // 自定义提取码同样纯前端生成、派生密钥，码明文不经服务端【决策 2026-10-24】
+      const raw = customExtractCode.trim();
+      let code: string;
+      if (raw) {
+        const parsed = parseCustomCode(raw, "extract");
+        if (!parsed) {
+          setExtractErr("自定义提取码无效：需为 E + 8 位（Crockford 字符，不含 I/L/O/U）");
+          return;
+        }
+        code = parsed;
+      } else {
+        code = generateCode("extract");
+      }
       const salt = crypto.getRandomValues(new Uint8Array(32));
       const key = await deriveExtractKey(code, salt);
       const { nonce, ct } = await encryptExtract(key, extractContent);
@@ -213,9 +248,12 @@ export default function Admin() {
       setNewExtractCode(formatCode(code));
       setNewExtractCopied(false);
       setExtractContent("");
+      setCustomExtractCode("");
       await refresh();
-    } catch {
-      setExtractErr("创建提取包失败");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409)
+        setExtractErr("该提取码已被未销毁的提取包占用，请换一个");
+      else setExtractErr("创建提取包失败");
     } finally {
       setExtractBusy(false);
     }
@@ -278,7 +316,7 @@ export default function Admin() {
         <button onClick={logout}>退出登录</button>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+      <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
         <select
           value={ttlMs}
           onChange={(e) => setTtlMs(Number(e.target.value))}
@@ -290,6 +328,14 @@ export default function Admin() {
             </option>
           ))}
         </select>
+        <input
+          value={customChatCode}
+          onChange={(e) => setCustomChatCode(e.target.value)}
+          placeholder="自定义对话码（可选，C-XXXXXXXX）"
+          style={{ width: 260 }}
+          spellCheck={false}
+          autoCapitalize="characters"
+        />
         <button
           className="primary"
           onClick={() => void create()}
@@ -299,7 +345,7 @@ export default function Admin() {
         </button>
       </div>
       <div className="muted" style={{ marginTop: 6 }}>
-        会话时长从对方加入时起算；未使用的码 7 天后自动作废。
+        会话时长从对方加入时起算；未使用的码 7 天后自动作废。自定义码留空则随机生成；弱码会降低防猜测强度。
       </div>
 
       {newCode && (
@@ -422,6 +468,16 @@ export default function Admin() {
               </option>
             ))}
           </select>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            value={customExtractCode}
+            onChange={(e) => setCustomExtractCode(e.target.value)}
+            placeholder="自定义提取码（可选，E-XXXXXXXX）"
+            style={{ width: 260 }}
+            spellCheck={false}
+            autoCapitalize="characters"
+          />
           <button
             className="primary"
             onClick={() => void createExtractPkg()}
@@ -429,6 +485,9 @@ export default function Admin() {
           >
             {extractBusy ? "生成中…" : "生成提取码"}
           </button>
+        </div>
+        <div className="muted" style={{ marginTop: 6 }}>
+          自定义码留空则随机生成。提取码密钥由码派生，弱码会显著降低抗离线枚举强度，敏感内容建议用随机码。
         </div>
         {extractErr && <div className="banner">{extractErr}</div>}
 

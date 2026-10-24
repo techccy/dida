@@ -64,10 +64,12 @@ export async function listSessions(): Promise<SessionInfo[]> {
 
 export async function createSession(
   ttlMs: number,
+  /** 可选自定义对话码（已归一化且格式校验通过，§8）；缺省由服务端随机生成 */
+  code?: string,
 ): Promise<{ sessionId: string; code: string; ttlMs: number }> {
   const res = await adminFetch("/admin/sessions", {
     method: "POST",
-    body: JSON.stringify({ ttlMs }),
+    body: JSON.stringify(code ? { ttlMs, code } : { ttlMs }),
   });
   if (!res.ok) throw new ApiError(res.status, "create-failed");
   return (await res.json()) as {
