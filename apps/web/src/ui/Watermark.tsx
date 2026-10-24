@@ -40,8 +40,10 @@ export function deviceInfo(): string {
 }
 
 const CANVAS_ID = "dida-wm-canvas";
-const TILE_W = 300;
-const TILE_H = 170;
+/** 行距：同瓦片两份副本垂直相差半格（75px），不同行带亦不共 y，防叠印 */
+const TILE_H = 150;
+/** 相邻水印副本的最小水平安全间隙（px），防叠印 */
+const GAP_X = 90;
 const FONT_SIZE = 13;
 /** devtools 探测：探针周期（ms）与关闭判定宽限 */
 const PROBE_INTERVAL_MS = 2000;
@@ -63,19 +65,25 @@ function drawWatermark(canvas: HTMLCanvasElement, text: string): void {
   ctx.fillStyle = dark ? "rgba(205, 210, 220, 0.14)" : "rgba(55, 60, 70, 0.13)";
   ctx.font = `${FONT_SIZE}px system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif`;
   ctx.textBaseline = "middle";
-  // 旋转坐标系平铺：覆盖旋转后的对角线范围
+  // 动态瓦片宽度：按实测文本宽度 + 安全间隙计算，杜绝相邻副本叠印
+  // （水印串含 IP/设备/时间时可达数百像素，固定间距会互相重叠）
+  const textW = ctx.measureText(text).width;
+  const cellW = Math.max(Math.ceil(textW) + GAP_X, 260);
+  const cellH = TILE_H;
+  // 旋转坐标系平铺：覆盖旋转后的对角线范围（外扩一圈防边缘漏铺）
   const diag = Math.sqrt(w * w + h * h);
   const half = diag / 2;
   ctx.save();
   ctx.translate(w / 2, h / 2);
   ctx.rotate((-30 * Math.PI) / 180);
   let row = 0;
-  for (let y = -half; y < half; y += TILE_H, row++) {
-    const offset = row % 2 === 0 ? 0 : TILE_W / 2; // 逐行错位，防整列裁剪
-    for (let x = -half; x < half; x += TILE_W) {
-      // 瓦片内双行重复：同一水印串错位两份，单瓦片被裁掉仍可溯源
+  for (let y = -half - cellH; y < half; y += cellH, row++) {
+    const offset = row % 2 === 0 ? 0 : cellW / 2; // 逐行错位，防整列裁剪
+    for (let x = -half - cellW; x < half; x += cellW) {
+      // 瓦片内双份重复：错位两份（水平半格 + 垂直半格），单份被裁掉仍可溯源；
+      // 两份处于不同 y 带（相差 cellH/2），与相邻行也不共 y，互不叠印
       ctx.fillText(text, x + offset, y);
-      ctx.fillText(text, x + offset + TILE_W / 2, y + TILE_H / 2);
+      ctx.fillText(text, x + offset + cellW / 2, y + cellH / 2);
     }
   }
   ctx.restore();
