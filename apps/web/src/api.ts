@@ -53,8 +53,6 @@ export interface SessionInfo {
   status: "created" | "active" | "ended";
   joinedAt?: number;
   deadline?: number;
-  adminVerified: boolean;
-  partVerified: boolean;
 }
 
 export async function listSessions(): Promise<SessionInfo[]> {

@@ -2,7 +2,7 @@
  * Session DO：会话状态机（§4）、密钥中继（§5.2）、消息中继 + backlog（§7.5）、
  * 三类闹钟（§7.4）、Hibernation attachment（§7.3）、密文零落盘（§7.2）。
  *
- * 持久存储只有 meta（几百字节元数据）：码哈希/公钥/salt/状态/时间戳/seq 水位/verified。
+ * 持久存储只有 meta（几百字节元数据）：码哈希/公钥/salt/状态/时间戳/seq 水位。
  * 消息密文只存在于内存 backlog，DO 消亡即失，从不上盘（§7.2）。
  *
  * 连接模型：WS 升级由 Worker 边缘完成首帧鉴权（auth/join，§6），
@@ -32,8 +32,6 @@ interface SessionMeta {
   createdAt: number;
   joinedAt?: number;
   deadline?: number;
-  adminVerified: boolean;
-  partVerified: boolean;
   /** 管理员已发送的最大 seq（发送方水位） */
   maxSentAdmin?: number;
   /** 对方已发送的最大 seq（发送方水位） */
@@ -53,8 +51,6 @@ interface Attachment {
   lastAck: number;
   /** 是否已收到 peer 帧（对端公钥 + salt） */
   peerSent: boolean;
-  /** 本方是否已点"已核对" */
-  verified: boolean;
   /** 已被同公钥新连接接替（刷新/StrictMode 双挂载）：不再视为活连接 */
   replaced?: boolean;
 }
@@ -114,8 +110,6 @@ export class SessionDO extends DurableObject<Env> {
       status: "created",
       ttlMs: args.ttlMs,
       createdAt: args.createdAt,
-      adminVerified: false,
-      partVerified: false,
       alarm: { kind: "unused", at: args.createdAt + UNUSED_CODE_TTL_MS },
     };
     this.state.storage.put(META_KEY, meta);
@@ -137,24 +131,18 @@ export class SessionDO extends DurableObject<Env> {
     createdAt: number;
     joinedAt?: number;
     deadline?: number;
-    adminVerified: boolean;
-    partVerified: boolean;
   }> {
     const meta = await this.state.storage.get<SessionMeta>(META_KEY);
     if (!meta)
       return {
         status: "ended",
         createdAt: 0,
-        adminVerified: false,
-        partVerified: false,
       };
     return {
       status: meta.status,
       createdAt: meta.createdAt,
       joinedAt: meta.joinedAt,
       deadline: meta.deadline,
-      adminVerified: meta.adminVerified,
-      partVerified: meta.partVerified,
     };
   }
 
@@ -223,7 +211,6 @@ export class SessionDO extends DurableObject<Env> {
       lastSent: role === "admin" ? meta.maxSentAdmin ?? 0 : meta.maxSentPart ?? 0,
       lastAck: role === "admin" ? meta.ackPart ?? 0 : meta.ackAdmin ?? 0,
       peerSent: false,
-      verified: role === "admin" ? meta.adminVerified : meta.partVerified,
     };
     server.serializeAttachment(att);
 
@@ -261,9 +248,6 @@ export class SessionDO extends DurableObject<Env> {
               this.state.storage.put(META_KEY, meta);
             }
           }
-          return;
-        case "verify":
-          await this.onVerify(ws, att);
           return;
         case "end":
           await this.onPeerLeave(ws, att);
@@ -414,7 +398,7 @@ export class SessionDO extends DurableObject<Env> {
     this.state.storage.put(META_KEY, meta);
     ws.serializeAttachment(att);
 
-    // 双方公钥齐备 → 向双方发 peer 帧（DO 只中继，不计算指纹、不碰明文，§5.2）
+    // 双方公钥齐备 → 向双方发 peer 帧（DO 只中继，不碰明文，§5.2）
     if (meta.pubAdmin && meta.pubPart && meta.salt) {
       this.deliverPeerAndBacklog(ws, att, meta);
       // 对端若已在聊（见过 peer 帧），本方重连 = 回归：通知其清"对方暂时离开"
@@ -464,14 +448,11 @@ export class SessionDO extends DurableObject<Env> {
     if (lost > 0) this.send(ws, { type: "lost", n: lost });
 
     const theirPub = role === "admin" ? meta.pubPart : meta.pubAdmin;
-    const peerVerified =
-      role === "admin" ? meta.partVerified : meta.adminVerified;
     this.send(ws, {
       type: "peer",
       pub: theirPub,
       salt: meta.salt as string,
       deadline: meta.deadline,
-      verified: peerVerified,
     });
     att.peerSent = true;
     ws.serializeAttachment(att);
@@ -529,19 +510,6 @@ export class SessionDO extends DurableObject<Env> {
     };
     const live = this.liveConnections();
     if (live[peerRole]) this.send(live[peerRole], out);
-  }
-
-  private async onVerify(ws: WebSocket, att: Attachment) {
-    const meta = await this.state.storage.get<SessionMeta>(META_KEY);
-    if (!meta) return;
-    if (att.role === "admin") meta.adminVerified = true;
-    else meta.partVerified = true;
-    this.state.storage.put(META_KEY, meta);
-    att.verified = true;
-    ws.serializeAttachment(att);
-    const peerRole: Role = att.role === "admin" ? "participant" : "admin";
-    const live = this.liveConnections();
-    if (live[peerRole]) this.send(live[peerRole], { type: "verified" });
   }
 
   /** 某方离开（end 帧或 WS close）：通知对端 + 进入 grace（仅 active 态，§4.2） */

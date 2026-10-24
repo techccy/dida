@@ -1,6 +1,6 @@
 /**
  * 聊天视图（管理员后台内嵌 / 对方聊天页共用）：
- * 消息列表 + 输入框 + 状态指示 + 剩余时间倒计时 + 指纹核对区 + 警告横幅（§3、§5.4）。
+ * 消息列表 + 输入框 + 状态指示 + 剩余时间倒计时 + 信息包气泡（§3、§5.4）。
  */
 import { useEffect, useRef, useState } from "react";
 import { DidaClient, type ConnState } from "../ws/client";
@@ -36,6 +36,20 @@ const END_TEXT: Record<string, string> = {
   "grace-timeout": "对方长时间未返回，会话已终止并清除",
 };
 
+interface ChatMsg {
+  text: string;
+  ts: number;
+  mine: boolean;
+  /** 信息包（§5.4）：截断展示 + 一键复制全文 */
+  packet?: boolean;
+}
+
+/** 信息包气泡截断预览：前 24 字符 + 省略号 */
+function packetPreview(text: string): string {
+  const chars = Array.from(text.trim());
+  return chars.length > 24 ? chars.slice(0, 24).join("") + "…" : chars.join("");
+}
+
 export default function ChatView({
   role,
   credential,
@@ -46,20 +60,19 @@ export default function ChatView({
 }: Props) {
   const [state, setState] = useState<ConnState>("connecting");
   const [stateDetail, setStateDetail] = useState<string | undefined>();
-  const [messages, setMessages] = useState<{ text: string; ts: number; mine: boolean }[]>([]);
-  const [fingerprint, setFingerprint] = useState<string | null>(null);
-  const [peerVerified, setPeerVerified] = useState(false);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [deadline, setDeadline] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const [lostTotal, setLostTotal] = useState(0);
   const [peerLeft, setPeerLeft] = useState(false);
   const [input, setInput] = useState("");
   const [tooLong, setTooLong] = useState(false);
-  /** 本方是否已点"我已核对"（仅 UI 状态，§5.4 软核对） */
-  const [verifiedMe, setVerifiedMe] = useState(false);
+  /** 信息包复制反馈：最近一次复制的消息下标 */
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const clientRef = useRef<DidaClient | null>(null);
   const keyRef = useRef<KeyPair | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const copiedTimerRef = useRef<number | null>(null);
 
   // 加载/生成本方密钥（sessionStorage；刷新后同密钥 = 续聊）
   useEffect(() => {
@@ -95,15 +108,12 @@ export default function ChatView({
           setPeerLeft(false);
           setMessages((prev) => [
             ...prev,
-            { text: m.text, ts: m.ts, mine: false },
+            { text: m.text, ts: m.ts, mine: false, packet: m.packet },
           ]);
         },
-        onFingerprint: (fp) => setFingerprint(fp),
         onPeerMeta: (meta) => {
           if (meta.deadline !== undefined) setDeadline(meta.deadline);
-          if (meta.verified) setPeerVerified(true);
         },
-        onVerified: () => setPeerVerified(true),
         onLost: (n) => setLostTotal((t) => t + n),
         onPeerLeft: () => setPeerLeft(true),
         onPeerBack: () => setPeerLeft(false),
@@ -131,29 +141,47 @@ export default function ChatView({
     return () => window.clearInterval(t);
   }, [deadline]);
 
+  // 复制反馈计时器清理
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
+
   // 滚动到底
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight });
   }, [messages]);
 
-  const send = async () => {
+  const overLimit = (text: string) =>
+    new TextEncoder().encode(text).length > MSG_MAX_BYTES - 32;
+
+  const send = async (packet = false) => {
     const text = input.trim();
     if (!text || !clientRef.current) return;
-    if (new TextEncoder().encode(text).length > MSG_MAX_BYTES - 32) {
+    if (overLimit(text)) {
       setTooLong(true);
       return;
     }
-    const ok = await clientRef.current.sendText(text);
+    const ok = await clientRef.current.sendText(text, packet);
     if (ok) {
       setMessages((prev) => [
         ...prev,
-        { text, ts: Date.now(), mine: true },
+        { text, ts: Date.now(), mine: true, packet },
       ]);
       setInput("");
       setTooLong(false);
     } else {
       setTooLong(true);
     }
+  };
+
+  const copyMsg = (i: number, text: string) => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopiedIdx(i);
+      if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = window.setTimeout(() => setCopiedIdx(null), 1500);
+    });
   };
 
   const statusText = (() => {
@@ -183,54 +211,43 @@ export default function ChatView({
         {peerLeft && state === "ready" ? " · 对方暂时离开" : ""}
       </div>
 
-      {state !== "ended" &&
-        fingerprint !== null &&
-        !(peerVerified && verifiedMe) && (
-          <div className="banner warn">
-            未核对安全指纹：仅能防存储型泄露，不能保证抗主动中间人。请通过独立渠道
-            （传递邀请码的同一渠道）与对方核对下方安全码。
-          </div>
-        )}
-      {peerVerified && (
-        <div className="banner ok">对方已核对安全指纹</div>
-      )}
-
       <div className="messages" ref={messagesRef}>
         {messages.length === 0 && (
           <div className="muted" style={{ padding: 8 }}>
             {state === "ready" ? "开始对话。" : "等待连接…"}
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.mine ? "mine" : "theirs"}`}>
-            {m.text}
-            <span className="ts">
-              {new Date(m.ts).toLocaleTimeString("zh-CN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          </div>
-        ))}
+        {messages.map((m, i) =>
+          m.packet ? (
+            <div key={i} className={`msg packet ${m.mine ? "mine" : "theirs"}`}>
+              <div className="packet-head">📦 信息包</div>
+              <div className="packet-preview">{packetPreview(m.text)}</div>
+              <button
+                className="copy-btn"
+                onClick={() => copyMsg(i, m.text)}
+              >
+                {copiedIdx === i ? "已复制" : "复制"}
+              </button>
+              <span className="ts">
+                {new Date(m.ts).toLocaleTimeString("zh-CN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            </div>
+          ) : (
+            <div key={i} className={`msg ${m.mine ? "mine" : "theirs"}`}>
+              {m.text}
+              <span className="ts">
+                {new Date(m.ts).toLocaleTimeString("zh-CN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            </div>
+          ),
+        )}
       </div>
-
-      {fingerprint !== null && (
-        <div style={{ margin: "10px 0" }}>
-          <div className="muted">安全指纹（经独立渠道与对方核对）</div>
-          <div className="code">{fingerprint}</div>
-          <button
-            className="ok"
-            style={{ marginTop: 8 }}
-            disabled={verifiedMe}
-            onClick={() => {
-              setVerifiedMe(true);
-              clientRef.current?.verify();
-            }}
-          >
-            {verifiedMe ? "已核对" : "我已核对"}
-          </button>
-        </div>
-      )}
 
       {state === "ended" && (
         <div className="banner">{END_TEXT[stateDetail ?? ""] ?? "会话已终止"}</div>
@@ -249,6 +266,11 @@ export default function ChatView({
               }
             }}
           />
+          {role === "admin" && (
+            <button onClick={() => void send(true)} disabled={!input.trim()}>
+              打包发送
+            </button>
+          )}
           <button className="primary" onClick={() => void send()}>
             发送
           </button>

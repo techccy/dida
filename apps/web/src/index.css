@@ -146,6 +146,40 @@ select {
   font-size: 11px;
   opacity: 0.7;
 }
+
+/* 信息包（§5.4）：截断预览 + 一键复制 */
+.msg.packet {
+  border: 1px dashed #8a8f99;
+  background: transparent;
+}
+.msg.packet.mine {
+  background: rgba(43, 108, 176, 0.12);
+  color: inherit;
+  border-color: #2b6cb0;
+}
+.msg.packet.theirs {
+  background: transparent;
+}
+.packet-head {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-bottom: 2px;
+}
+.packet-preview {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.copy-btn {
+  margin-top: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  align-self: flex-start;
+}
 .composer {
   display: flex;
   gap: 8px;

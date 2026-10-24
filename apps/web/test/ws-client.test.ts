@@ -88,7 +88,6 @@ async function makeAdminClient() {
     lost: [] as number[],
     peerLeft: [] as unknown[],
     peerBack: [] as unknown[],
-    fp: [] as string[],
   };
   const client = new DidaClient({
     wsUrl: "ws://test/ws",
@@ -99,9 +98,7 @@ async function makeAdminClient() {
     salt: SALT,
     onState: (s, d) => events.state.push([s, d]),
     onMessage: (m) => events.message.push(m),
-    onFingerprint: (fp) => events.fp.push(fp),
     onPeerMeta: () => {},
-    onVerified: () => {},
     onLost: (n) => events.lost.push(n),
     onPeerLeft: () => events.peerLeft.push(1),
     onPeerBack: () => events.peerBack.push(1),

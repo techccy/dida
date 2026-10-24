@@ -3,11 +3,16 @@
  * 前后端共享。所有帧/校验逻辑都必须以这里的常量为唯一来源。
  */
 
-/** Crockford Base32 字母表（排除 I/L/O/U）—— 用于邀请码（§8）与安全指纹（§5.4） */
+/** Crockford Base32 字母表（排除 I/L/O/U）—— 用于邀请码（§8） */
 export const CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ" as const;
 
-/** 邀请码长度（字符数）≈ 60 bit 熵（§8） */
-export const CODE_LENGTH = 12;
+/**
+ * 邀请码长度（字符数）= 6，≈ 30 bit 熵（§8）。
+ * 【决策 2026-10-24：12 位 → 6 位】实际使用中输入成本高、无人反馈需要 60 bit
+ * 强度；暴力破解风险由 Cloudflare 边缘防护 + Guard DO join 限流（§10）兜底，
+ * 明确接受残余风险，不做额外加固。旧 12 位码不兼容，直接切换。
+ */
+export const CODE_LENGTH = 6;
 
 /** 邀请码未使用强制作废期限：7 天（§8） */
 export const UNUSED_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -40,12 +45,6 @@ export const PING_INTERVAL_MS = 30_000;
 
 /** backlog 内存保留上限：最近 500 条（§21） */
 export const BACKLOG_LIMIT = 500;
-
-/** 指纹取 SHA-256 前 10 字节（§5.4） */
-export const FINGERPRINT_PREFIX_BYTES = 10;
-
-/** 指纹显示字符数（16）与格式 XXXX-XXXX-XXXX-XXXX */
-export const FINGERPRINT_CHARS = 16;
 
 /** HKDF info 串（§5.2）——方向性密钥 */
 export const HKDF_INFO_ADMIN_TO_PARTICIPANT = "dida/v1/admin->participant";
