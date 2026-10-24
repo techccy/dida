@@ -1,8 +1,8 @@
 /**
  * WS 帧类型（§6 完整帧 schema）
- * 客户端 → DO：auth / join / pub / msg / ack / verify / end / ping
+ * 客户端 → DO：auth / join / pub / msg / ack / end / ping
  * DO → 客户端：ok / peer / msg / backlog / lost / peer-left / peer-gone /
- *              verified / end / error / pong
+ *              end / error / pong
  *
  * 约定：
  * - 所有二进制字段均为 base64 字符串（公钥 32B / salt 32B / nonce 12B / 密文 ≤8KB+tag）。
@@ -50,10 +50,6 @@ export interface AckFrame {
   seq: number;
 }
 
-export interface VerifyFrame {
-  type: "verify";
-}
-
 export interface EndFrame {
   type: "end";
 }
@@ -68,7 +64,6 @@ export type ClientFrame =
   | PubFrame
   | MsgFrame
   | AckFrame
-  | VerifyFrame
   | EndFrame
   | PingFrame;
 
@@ -93,8 +88,6 @@ export interface PeerFrame {
   salt: string;
   /** 会话 deadline（joined_at + TTL，ms）——客户端倒计时用（扩展字段） */
   deadline?: number;
-  /** 对端是否已核对指纹（扩展字段） */
-  verified?: boolean;
 }
 
 export interface RelayedMsgFrame {
@@ -125,10 +118,6 @@ export interface PeerGoneFrame {
   type: "peer-gone";
 }
 
-export interface VerifiedFrame {
-  type: "verified";
-}
-
 export interface EndResultFrame {
   type: "end";
   reason: "ttl" | "admin-end" | "key-loss" | "grace-timeout";
@@ -151,7 +140,6 @@ export type ServerFrame =
   | LostFrame
   | PeerLeftFrame
   | PeerGoneFrame
-  | VerifiedFrame
   | EndResultFrame
   | ErrorFrame
   | PongFrame;

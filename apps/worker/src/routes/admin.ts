@@ -84,8 +84,6 @@ export async function handleAdminApi(
           status: st.status,
           joinedAt: st.joinedAt,
           deadline: st.deadline,
-          adminVerified: st.adminVerified,
-          partVerified: st.partVerified,
         };
       }),
     );

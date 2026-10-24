@@ -48,7 +48,7 @@ describe("crockford", () => {
 });
 
 describe("generateInviteCode", () => {
-  it("12 位 Crockford 字符", () => {
+  it("6 位 Crockford 字符", () => {
     for (let i = 0; i < 200; i++) {
       const code = generateInviteCode();
       expect(code).toHaveLength(CODE_LENGTH);
@@ -70,13 +70,13 @@ describe("generateInviteCode", () => {
 
 describe("normalizeCode", () => {
   it("大小写与空格/分隔符归一化", () => {
-    expect(normalizeCode("abcd ef12-gh34")).toBe("ABCDEF12GH34");
-    expect(normalizeCode("a-b-c-d-e-f-g-h-1-2-3-4")).toBe("ABCDEFGH1234");
-    expect(normalizeCode("  A B C D E F G H 1 2 3 4 ")).toBe("ABCDEFGH1234");
+    expect(normalizeCode("ab cd12")).toBe("ABCD12");
+    expect(normalizeCode("a-b-c-d-1-2")).toBe("ABCD12");
+    expect(normalizeCode("  A B C D 1 2 ")).toBe("ABCD12");
   });
 
   it("归一化后可通过格式校验", () => {
-    const raw = "a b c d e f g h 1 2 3 4";
+    const raw = "a b c d 1 2";
     expect(isValidCode(normalizeCode(raw))).toBe(true);
   });
 });

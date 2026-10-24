@@ -9,12 +9,7 @@ import {
   MSG_MAX_BYTES,
   type Role,
 } from "@dida/shared";
-import {
-  computeFingerprint,
-  b64ToBytes,
-  bytesToB64,
-  utf8Encode,
-} from "@dida/shared";
+import { b64ToBytes, bytesToB64, utf8Encode } from "@dida/shared";
 
 const cryptoSubtle = crypto.subtle;
 
@@ -69,7 +64,7 @@ export function clearAdminToken(): void {
 export interface KeyPair {
   privateKey: CryptoKey;
   publicKey: CryptoKey;
-  /** 公钥原始 32 字节（用于指纹/peer 帧） */
+  /** 公钥原始 32 字节（用于 peer 帧） */
   pubRaw: Uint8Array;
 }
 
@@ -96,8 +91,6 @@ export interface DirectionKeys {
   encKey: CryptoKey;
   /** 本方解密接收用 */
   decKey: CryptoKey;
-  /** 共享秘密（32B），供指纹等本地计算 */
-  sharedSecret: Uint8Array;
 }
 
 /**
@@ -111,6 +104,8 @@ export async function deriveDirectionKeys(
   salt: Uint8Array,
   role: Role,
 ): Promise<DirectionKeys> {
+  // X25519 ECDH：双方算出同一 32 字节共享秘密，作为 HKDF 的输入（ikm）。
+  // 密钥由下方 deriveKey 派生，此处仅触发 ECDH 计算。
   const sharedSecret = new Uint8Array(
     await cryptoSubtle.deriveBits(
       { name: "X25519", public: theirPublicKey },
@@ -118,6 +113,7 @@ export async function deriveDirectionKeys(
       256,
     ),
   );
+  void sharedSecret;
 
   const info =
     role === "admin"
@@ -131,7 +127,7 @@ export async function deriveDirectionKeys(
   const encKey = await hkdfAesKey(sharedSecret, salt, info);
   const decKey = await hkdfAesKey(sharedSecret, salt, otherInfo);
 
-  return { encKey, decKey, sharedSecret };
+  return { encKey, decKey };
 }
 
 async function hkdfAesKey(
@@ -165,6 +161,11 @@ async function hkdfAesKey(
 export interface PlainMessage {
   text: string;
   ts: number;
+  /**
+   * 信息包标记（§5.4）：true = 管理员发送的"信息包"。
+   * 接收端气泡截断展示（前 ~24 字符），提供一键复制全文。
+   */
+  packet?: boolean;
 }
 
 /**
@@ -229,6 +230,8 @@ export async function decryptMsg(
     );
     const obj = JSON.parse(new TextDecoder().decode(plain)) as PlainMessage;
     if (typeof obj.text !== "string" || typeof obj.ts !== "number")
+      throw new DecryptError();
+    if (obj.packet !== undefined && typeof obj.packet !== "boolean")
       throw new DecryptError();
     return obj;
   } catch {
@@ -334,16 +337,6 @@ export function loadAdminSalt(): Uint8Array | null {
 export function clearLocalKeyPair(key: "admin" | "part"): void {
   ssDel(key === "admin" ? SS_KEYS.ADMIN_KEY : SS_KEYS.PART_KEY);
   if (key === "admin") ssDel(SS_KEYS.ADMIN_SALT);
-}
-
-// ---------- 指纹（§5.4） ----------
-
-export async function localFingerprint(
-  pubAdmin: Uint8Array,
-  pubParticipant: Uint8Array,
-  salt: Uint8Array,
-): Promise<string> {
-  return computeFingerprint(pubAdmin, pubParticipant, salt);
 }
 
 // ---------- 邀请码 sessionStorage（§3：不进 URL） ----------

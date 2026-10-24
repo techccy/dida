@@ -15,7 +15,6 @@ import {
   type ServerFrame,
   b64ToBytes,
   bytesToB64,
-  computeFingerprint,
 } from "@dida/shared";
 import {
   decryptMsg,
@@ -49,10 +48,8 @@ export interface ClientOptions {
   salt?: Uint8Array;
   onState: (state: ConnState, detail?: string) => void;
   onMessage: (msg: PlainMessage) => void;
-  onFingerprint: (fingerprint: string) => void;
-  /** peer 帧元数据：会话截止时间 + 对端是否已核对（§6.2） */
-  onPeerMeta: (meta: { deadline?: number; verified: boolean }) => void;
-  onVerified: (peerVerified: boolean) => void;
+  /** peer 帧元数据：会话截止时间（§6.2） */
+  onPeerMeta: (meta: { deadline?: number }) => void;
   onLost: (n: number) => void;
   onPeerLeft: () => void;
   onEnd: (reason: string) => void;
@@ -85,8 +82,6 @@ export class DidaClient {
   private pendingFrames: RelayedMsgFrame[] = [];
 
   private keys: DirectionKeys | null = null;
-  private pubAdmin: Uint8Array | null = null;
-  private pubParticipant: Uint8Array | null = null;
   private salt: Uint8Array | null = null;
 
   constructor(opts: ClientOptions) {
@@ -151,7 +146,6 @@ export class DidaClient {
       case "peer": {
         this.opts.onPeerMeta({
           deadline: typeof frame.deadline === "number" ? frame.deadline : undefined,
-          verified: frame.verified === true,
         });
         void this.onPeer(frame.pub, frame.salt);
         return;
@@ -184,10 +178,6 @@ export class DidaClient {
       }
       case "peer-gone": {
         this.opts.onPeerLeft();
-        return;
-      }
-      case "verified": {
-        this.opts.onVerified(true);
         return;
       }
       case "end": {
@@ -233,13 +223,6 @@ export class DidaClient {
     try {
       const peerPub = b64ToBytes(pubB64);
       this.salt = b64ToBytes(saltB64);
-      if (this.opts.role === "admin") {
-        this.pubAdmin = this.opts.keyPair.pubRaw;
-        this.pubParticipant = peerPub;
-      } else {
-        this.pubAdmin = peerPub;
-        this.pubParticipant = this.opts.keyPair.pubRaw;
-      }
       const peerKey = await crypto.subtle.importKey(
         "raw",
         peerPub.slice().buffer,
@@ -256,13 +239,6 @@ export class DidaClient {
       );
       // 重连时 backlog 帧可能先于 peer 帧到达（DO 先发 backlog 再发 peer，§7.5）
       this.flushPendingFrames();
-      // 指纹：双方本地各算（DO 不参与，§5.4）
-      const fp = await computeFingerprint(
-        this.pubAdmin,
-        this.pubParticipant,
-        this.salt,
-      );
-      this.opts.onFingerprint(fp);
       this.setState("ready");
     } catch {
       this.setState("error", "crypto");
@@ -321,16 +297,14 @@ export class DidaClient {
       this.ws.send(JSON.stringify({ type: "ack", seq: this.lastReceived }));
   }
 
-  /** 发送一条明文消息（加密后经 WS 发出）。返回 false = 超限未发 */
-  async sendText(text: string): Promise<boolean> {
+  /** 发送一条明文消息（加密后经 WS 发出）。packet=true 发送为信息包。返回 false = 超限未发 */
+  async sendText(text: string, packet = false): Promise<boolean> {
     if (!this.keys || !this.ws || this.ws.readyState !== WebSocket.OPEN)
       return false;
     try {
-      const { nonce, ct } = await encryptMsg(
-        this.keys.encKey,
-        { text, ts: Date.now() },
-        this.opts.role,
-      );
+      const plain: PlainMessage = { text, ts: Date.now() };
+      if (packet) plain.packet = true;
+      const { nonce, ct } = await encryptMsg(this.keys.encKey, plain, this.opts.role);
       this.lastSent += 1;
       this.ws.send(
         JSON.stringify({ type: "msg", seq: this.lastSent, nonce, ct }),
@@ -340,12 +314,6 @@ export class DidaClient {
       // MsgTooLargeError 等：拒发
       return false;
     }
-  }
-
-  /** 本方已完成指纹 OOB 核对 */
-  verify() {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN)
-      this.ws.send(JSON.stringify({ type: "verify" }));
   }
 
   /** 主动离开（发 end 帧）；不清本地密钥 —— 60s 内同密钥可重连续聊 */

@@ -2,8 +2,9 @@
 
 网页版 1对1 临时端到端加密对话平台
 
-- 只有**管理员**能创建会话，生成 **12 位邀请码**邀请对方加入
+- 只有**管理员**能创建会话，生成 **6 位邀请码**邀请对方加入
 - 消息内容**端到端加密**（X25519 + HKDF + AES-256-GCM），服务端不持久化任何密文、从不持有密钥
+- 管理员可发送**信息包**：气泡截断展示，接收方一键复制全文（适合传密码/密钥类内容）
 - 会话在 **TTL 到期 / 任一方离开 / 管理员提前结束** 时清除痕迹
 - 前端独立托管（GitHub Pages），后端为 Cloudflare Worker（Durable Objects + Hibernation WebSocket）
 
@@ -14,7 +15,7 @@
 ```
 apps/web        前端 SPA（React + Vite），托管在 GitHub Pages
 apps/worker     Cloudflare Worker + 3 个 Durable Objects（Session / Guard / Registry）
-packages/shared 帧协议、常量、邀请码/指纹纯函数（前后端共用）
+packages/shared 帧协议、常量、邀请码纯函数（前后端共用）
 ```
 
 ## 快速开始（本地开发）
@@ -27,7 +28,7 @@ pnpm dev:worker       # miniflare 本地模拟 Worker + Durable Objects（默认
 pnpm dev:web          # Vite dev server（5173，代理 /admin/* 与 /ws 到 miniflare）
 ```
 
-浏览器开两个标签页联调：一个走 `/admin`（管理员，本地口令见 `apps/worker/.dev.vars` 的 `DEV_ADMIN_PASSWORD`，首次请自建该文件——已 gitignore），一个走 `/`（对方凭码加入），并经由独立渠道核对安全指纹。详见 DESIGN.md §16。
+浏览器开两个标签页联调：一个走 `/admin`（管理员，本地口令见 `apps/worker/.dev.vars` 的 `DEV_ADMIN_PASSWORD`，首次请自建该文件——已 gitignore），一个走 `/`（对方凭码加入）。详见 DESIGN.md §16。
 
 注意：PITR 在本地开发不可用（本地不存持久日志），属预期。
 
@@ -66,7 +67,7 @@ printf '%s' "<32字节b64>" | wrangler secret put TOKEN_SIGNING_KEY
 - [ ] CF Request Logging 已关
 - [ ] Secrets 已设置、未进仓库
 - [ ] 限流生效（登录失败锁定、加入 IP 限速）
-- [ ] 指纹核对、grace 重连、TTL/提前结束清理均联调通过
+- [ ] grace 重连、TTL/提前结束清理均联调通过；信息包（打包发送/截断预览/一键复制）联调通过
 
 ## 隐私声明
 
@@ -74,7 +75,7 @@ printf '%s' "<32字节b64>" | wrangler secret put TOKEN_SIGNING_KEY
 >
 > 前端代码独立托管于后端之外，即使后端恶意也无法篡改前端逻辑。
 >
-> 传输全程加密。安全指纹**须经独立渠道核对**；未核对时，仅能防止"存储型泄露"，**不能保证抵抗主动中间人攻击**。
+> 传输全程加密。本方案**不提供抗主动中间人攻击的人肉校验机制**（安全指纹核对已于 2026-10-24 移除）；其防护依赖前后端分离架构与 TLS，请知悉该边界。
 >
 > 托管方边缘层仍可观测到流量元数据（如 IP、时间戳）；关闭请求日志是可达的最小化边界。
 
@@ -85,8 +86,9 @@ printf '%s' "<32字节b64>" | wrangler secret put TOKEN_SIGNING_KEY
 3. 刷新可续聊（60s grace），关标签页即全失
 4. 无历史恢复：密钥丢失后，密文永久不可读
 5. 断线窗口内消息可能丢失（尽力补齐，非保证）
-6. 未核对安全指纹时，不保证抵抗主动中间人攻击
-7. PITR（30 天）可恢复 DO 存储历史，但本方案不落盘任何密文，至多恢复无内容元数据
-8. 单管理员、1对1、纯文本（v1 范围）
+6. 不抵抗主动中间人攻击（安全指纹核对已移除，2026-10-24 决策）
+7. 6 位邀请码 ≈30 bit 熵：暴力猜测由 CF 边缘防护 + join 限流兜底，明确接受残余风险
+8. PITR（30 天）可恢复 DO 存储历史，但本方案不落盘任何密文，至多恢复无内容元数据
+9. 单管理员、1对1（v1 范围）
 
 完整清单与决策理由见 DESIGN.md §18–§20。

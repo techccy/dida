@@ -9,7 +9,7 @@
 
 ## 0. 一句话定位
 
-网页版 **1对1 临时对话**：只有**管理员**能创建会话并生成 **12 位邀请码**；**对方**凭码加入；消息内容**端到端加密**（服务端只经手密文，且**密文零落盘**）；会话在 **TTL 到期 / 任一方离开（60s grace 超时）/ 管理员提前结束** 时清除痕迹。
+网页版 **1对1 临时对话**：只有**管理员**能创建会话并生成 **6 位邀请码**；**对方**凭码加入；消息内容**端到端加密**（服务端只经手密文，且**密文零落盘**）；会话在 **TTL 到期 / 任一方离开（60s grace 超时）/ 管理员提前结束** 时清除痕迹。
 
 核心卖点：**尽量不留下痕迹** + **诚实的安全边界声明**。
 
@@ -22,11 +22,10 @@
 | 能防 | 服务端从**正常存储**中读出明文 | ✅ 密文零落盘 + 服务端永远没有密钥 |
 | 能防 | 恶意后端**篡改前端 JS** 直接读明文 | ✅ 前端独立托管（GitHub Pages），与后端分离 |
 | 能防 | 传输层**被动**窃听（中间人只读） | ✅ 全程 TLS / WSS |
-| 缓解但需配合 | 传输层**主动** MITM（篡改密钥交换） | ⚠️ 安全指纹经独立渠道 OOB 核对（软验证） |
+| 边界/不防 | 传输层**主动** MITM（篡改密钥交换） | ❌ 【决策 2026-10-24】原安全指纹 OOB 核对环节已移除——实际使用中无人执行核对流程，形同虚设；如实声明该边界 |
 | 边界/不防 | 托管方边缘层的流量元数据（IP、时间戳） | ❌ 关 CF Request Logging 是可达的最小边界，无法根除 |
-| 边界/不防 | 双方**未核对**指纹时的主动 MITM | ❌ 实时可读（必须靠指纹核对兜住） |
 
-**实现者须知**：本方案**不是**"即使服务器恶意也绝对读不到"的强 E2EE；它是"防止服务器从存储中拿到明文 + 防止后端篡改前端 + 用指纹核对兜住主动 MITM"的组合。所有对外文案必须与 §13 的隐私声明一致，**不得夸大为绝对安全**。
+**实现者须知**：本方案**不是**"即使服务器恶意也绝对读不到"的强 E2EE；它防的是"服务器从存储中拿到明文" + "后端篡改前端"。主动 MITM 防护依赖前后端分离带来的架构约束（DO 中继只转发密文，密钥交换帧同样受 TLS 保护），但**不提供指纹级的人肉校验兜底**。所有对外文案必须与 §13 的隐私声明一致，**不得夸大为绝对安全**。
 
 ---
 
@@ -66,7 +65,7 @@
 | `/admin` | **管理员后台** | 登录 → 创建会话（选 TTL 档位）→ 会话列表（码 / 状态 / 剩余时间倒计时 / **提前结束按钮**）→ 点进活跃会话在后台内嵌聊天视图。 |
 | `/c` | **对方聊天页** | 对方凭码进入。码存 sessionStorage，**不进 URL**（页面 URL 无、WS URL 也无，见 §6）。 |
 
-**UI 基调**：简体中文、极简。聊天页 = 消息列表 + 输入框 + 状态指示（等待对方 / 已连接 / 会话已结束）+ 剩余时间倒计时 + 安全指纹核对区（§5.4）。
+**UI 基调**：简体中文、极简。聊天页 = 消息列表 + 输入框（管理员多一个"打包发送"按钮）+ 状态指示（等待对方 / 已连接 / 会话已结束）+ 剩余时间倒计时。
 
 ---
 
@@ -118,7 +117,7 @@ ended(全清) = 删 DO 持久化元数据 + 清所有闹钟 + 通知在线方 en
 
 1. 管理员连接成功（`auth`）后，发 `pub` 帧（含自身公钥 + salt）。
 2. 对方连接成功（`join`）后，发 `pub` 帧（含自身公钥）。
-3. DO 收齐双方公钥后，向**双方**各发 `peer` 帧：对端公钥 + salt。（**DO 只中继，不计算指纹、不接触明文/密钥**。）
+3. DO 收齐双方公钥后，向**双方**各发 `peer` 帧：对端公钥 + salt。（**DO 只中继，不接触明文/密钥**。）
 4. 双方各自计算：
    - `sharedSecret = X25519(私钥mine, 公钥theirs)`（ECDH，双方算出同一 32 字节值）
    - `keyA = HKDF-SHA256(ikm=sharedSecret, salt=salt, info="dida/v1/admin->participant", L=32)`
@@ -130,29 +129,26 @@ ended(全清) = 删 DO 持久化元数据 + 清所有闹钟 + 通知在线方 en
 
 ### 5.3 消息加密
 
-- 明文 = JSON 字节：`{ "text": string, "ts": number(毫秒时间戳) }`
+- 明文 = JSON 字节：`{ "text": string, "ts": number(毫秒时间戳), "packet"?: boolean }`
+  - `packet: true` = 信息包（§5.4）；普通消息不含该字段
 - 算法 = **AES-256-GCM**
   - `nonce` = 每次随机 **12 字节**（`getRandomValues`）
   - `AAD` = `UTF8("dida/v1/" + fromRole)`（fromRole ∈ {`admin`,`participant`}），绑定发送方向，防跨方向重放
   - 输出 `ct`（含 GCM tag）
 - **单条消息上限 8KB**（超限前端拒发并提示）。
 
-### 5.4 安全指纹（安全码）——抗主动 MITM 的核心
+### 5.4 信息包（管理员消息打包）【决策 2026-10-24 新增】
 
-- 定义（双方各自本地计算，**DO 不参与**）：
-  ```
-  fingerprint = CrockfordBase32( SHA-256( pubAdmin ‖ pubParticipant ‖ salt )[0:10] )
-  ```
-  - `pubAdmin` = 管理员 X25519 公钥（32B），`pubParticipant` = 对方公钥（32B），`salt` = 32B
-  - 取哈希前 10 字节 → Crockford Base32 → **16 字符** → 格式化为 `XXXX-XXXX-XXXX-XXXX`
-  - 双方输入顺序固定（admin 公钥在前），故算出同一值。
-- **MITM 检测原理**：若 DO 恶意，给 A 一个假 B 公钥、给 B 一个假 A 公钥，则 A、B 各算出**不同**指纹 → 经独立渠道比对时发现不一致 → 判定被 MITM。
-- **交互（软验证）【决策：软验证，非硬门禁】**：
-  - 双方在 UI 展示各自算出的安全码。
-  - 双方经**独立可信渠道**（就是传递邀请码的那个渠道：电话/另一 IM/当面）核对。
-  - 核对一致后各自点"已核对"→ 前端发 `verify` 帧；DO 把 `verified` 转发给对端。
-  - 双方都点过 → UI 显示绿色"已核对"；否则持续显示**警告横幅**（"未核对安全指纹：仅能防存储型泄露，不能保证抗主动中间人"）。
-  - **未核对也可聊天**（避免"拒绝服务"）。管理员保留"提前结束"可随时终止。
+原 §5.4 安全指纹 OOB 核对环节已**整体移除**（前端 UI、指纹派生、`verify`/`verified` 帧、meta 的 `adminVerified`/`partVerified` 字段）。理由：实际使用中无人执行核对流程，形同虚设；其抗主动 MITM 价值已在 §1 威胁模型中如实降级为边界声明。
+
+本节现定义"信息包"功能：
+
+- **定义**：管理员发送消息时可选择"打包发送"——内容适合整段复制使用的敏感信息（密码、密钥、配置串等）。
+- **权限**：仅**管理员**可发（只有管理员端有"打包发送"按钮）；对方端与双方的消息列表对称渲染信息包气泡。
+- **展示**：气泡不完整展示内容——显示标签"📦 信息包" + **截断预览**（前 24 字符 + 省略号），防止肩窥全文；气泡内提供**独立"复制"按钮**，一键复制完整明文（带"已复制"反馈）。发送方自己的气泡同样按截断预览渲染、同样可复制。
+- **协议实现**【决策：明文 payload 内嵌标记，不加新帧】：加密前的明文 JSON 扩展为 `{ "text": string, "ts": number, "packet"?: boolean }`。`packet: true` 即信息包；普通消息不含该字段。DO 只转发密文，对 payload 格式无感知——**服务端、backlog、ack 水位零改动**。
+- **上限**：与普通消息共用单条 8KB 明文上限，不单独设限。
+- **解密校验**：`packet` 字段若存在必须为 boolean，否则视为篡改，按解密失败丢弃。
 
 ### 5.5 客户端心跳
 
@@ -171,11 +167,10 @@ WS 升级请求的 URL **无任何 query**（管理员 token、邀请码都不�
 | 帧 | 字段 | 说明 |
 |---|---|---|
 | `auth` | `{ type:"auth", credential:"<token>" }` | **管理员**首帧，管理员签名 token |
-| `join` | `{ type:"join", code:"<12位>" }` | **对方**首帧，邀请码 |
+| `join` | `{ type:"join", code:"<6位>" }` | **对方**首帧，邀请码 |
 | `pub` | `{ type:"pub", pub:"<b64 32B>", salt:"<b64 32B>" }` | 公钥交换；**salt 仅管理员携带**，对方可省略 salt |
 | `msg` | `{ type:"msg", seq:number, nonce:"<b64 12B>", ct:"<b64>" }` | 加密消息；`seq` 发送方从 1 递增 |
 | `ack` | `{ type:"ack", seq:number }` | 收到最高连续 seq 的确认 |
-| `verify` | `{ type:"verify" }` | 本方已完成指纹 OOB 核对 |
 | `end` | `{ type:"end" }` | 本方主动结束/离开 |
 | `ping` | `{ type:"ping" }` | 心跳 |
 
@@ -184,13 +179,12 @@ WS 升级请求的 URL **无任何 query**（管理员 token、邀请码都不�
 | 帧 | 字段 | 说明 |
 |---|---|---|
 | `ok` | `{ type:"ok", role:"admin"\|"participant" }` | 鉴权/加入成功 |
-| `peer` | `{ type:"peer", pub:"<b64>", salt:"<b64>" }` | 对端公钥 + salt（**不含指纹**，指纹由客户端自算） |
+| `peer` | `{ type:"peer", pub:"<b64>", salt:"<b64>" }` | 对端公钥 + salt |
 | `msg` | `{ type:"msg", from:"admin"\|"participant", seq:number, nonce:"<b64>", ct:"<b64>" }` | 中继消息 |
 | `backlog` | `{ type:"backlog", msgs:[ <msg帧> ] }` | 重连时补发内存中尚存的未确认消息 |
 | `lost` | `{ type:"lost", n:number }` | 断线窗口内丢失的消息数（尽力而为，可能为 0/未知） |
 | `peer-left` | `{ type:"peer-left" }` | 对端断开（进入 grace） |
 | `peer-gone` | `{ type:"peer-gone" }` | 对端彻底离开/会话将终止 |
-| `verified` | `{ type:"verified" }` | 对端已核对指纹 |
 | `end` | `{ type:"end", reason:"ttl"\|"admin-end"\|"key-loss"\|"grace-timeout" }` | 会话终止 |
 | `error` | `{ type:"error", code:"<string>" }` | 错误（`bad-cred`/`code-expired`/`rate-limited`/`busy` 等） |
 | `pong` | `{ type:"pong" }` | 心跳响应 |
@@ -232,7 +226,7 @@ WS 升级请求的 URL **无任何 query**（管理员 token、邀请码都不�
 
 每个 WS 连接序列化保存（`serializeAttachment`），休眠唤醒后恢复：
 ```
-{ role:"admin"|"participant", pub:<32B>, lastSeq:<int>, verified:<bool> }
+{ role:"admin"|"participant", pub:<32B>, lastSeq:<int> }
 ```
 
 ### 7.4 闹钟（alarming，存于持久存储，实例消亡后仍能触发）
@@ -255,12 +249,12 @@ WS 升级请求的 URL **无任何 query**（管理员 token、邀请码都不�
 
 ## 8. 邀请码
 
-- **格式**：**12 位** Crockford Base32 字符，字母表（32 符号，已排除 I/L/O/U，视觉无歧义）：
+- **格式**：**6 位** Crockford Base32 字符，字母表（32 符号，已排除 I/L/O/U，视觉无歧义）：
   ```
   0123456789ABCDEFGHJKMNPQRSTVWXYZ
   ```
-  12 位 ≈ **60 bit** 熵，配合限流（§10）足以抗慢速爆破。
-- **生成**：`getRandomValues(12 字节)` → Crockford Base32 → 12 字符。
+  6 位 ≈ **30 bit** 熵。【决策 2026-10-24：12 位 → 6 位】原 12 位（60 bit）输入成本高、无场景需要该强度；暴力猜测风险由 Cloudflare 边缘防护 + 限流（§10）兜底，**明确接受残余风险**，不做额外加固。旧 12 位码不兼容，直接切换。
+- **生成**：`getRandomValues(6 字节)` → 取低 30 bit → Crockford Base32 → 6 字符。
 - **存储**：DO 只存 **SHA-256 哈希**；**明文从不上盘**，只在创建时返回给管理员展示一次（供复制）。
 - **有效期**【决策】：码不设独立有效期，**与 TTL 同生死**；未使用的码 **7 天**强制作废（unused 闹钟）。
 - **TTL 起算**【决策】：从**对方加入**时起算（`deadline = joined_at + TTL`）。
@@ -317,7 +311,7 @@ CF 边缘自带基础 DDoS 防护；应用层加轻量限流，计数存 Guard D
 ```
 [管理员]                        [Worker / DO]                      [对方]
  登录 → token(sessionStorage)
- 建会话 → 展示 12 位码 + 选 TTL
+ 建会话 → 展示 6 位码 + 选 TTL
    │  (OOB 把码发给对方)
    │ WS 连接(无 query)
    │ → auth{token}
@@ -331,10 +325,7 @@ CF 边缘自带基础 DDoS 防护；应用层加轻量限流，计数存 Guard D
    │                                   → ok
    │                                   → pub{pubPart}
    │ ← peer{pubPart, salt}
-   │            双方本地算 sharedSecret/HKDF/指纹
-   │ → verify (OOB 核对后)
-   │            转发 verified 给对方
-   │                                   ← verify
+   │            双方本地算 sharedSecret/HKDF（方向性密钥）
    │ → msg{...}  ── 内存中继 ──→  msg{...}
    ...（30s 心跳；断线走 §4.2 grace）
  提前结束 / TTL 到期 / grace 超时
@@ -349,7 +340,7 @@ CF 边缘自带基础 DDoS 防护；应用层加轻量限流，计数存 Guard D
 >
 > 前端代码独立托管于后端之外，即使后端恶意也无法篡改前端逻辑。
 >
-> 传输全程加密。安全指纹**须经独立渠道核对**；未核对时，仅能防止"存储型泄露"，**不能保证抵抗主动中间人攻击**。
+> 传输全程加密。本方案**不提供抗主动中间人攻击的人肉校验机制**（安全指纹核对已于 2026-10-24 移除）；其防护依赖前后端分离架构与 TLS，请知悉该边界。
 >
 > 托管方边缘层仍可观测到流量元数据（如 IP、时间戳）；关闭请求日志是可达的最小化边界。
 
@@ -385,10 +376,10 @@ dida/
 │   │   │   │   ├── Entry.tsx      # /  邀请码输入
 │   │   │   │   ├── Admin.tsx      # /admin 登录+后台+内嵌聊天
 │   │   │   │   └── Chat.tsx       # /c  对方聊天
-│   │   │   ├── crypto/            # X25519 密钥对、HKDF、AES-GCM、指纹派生、sessionStorage 存取
+│   │   │   ├── crypto/            # X25519 密钥对、HKDF、AES-GCM、sessionStorage 存取
 │   │   │   ├── ws/                # WSS 连接、首帧鉴权、心跳、重连、backlog/lost 处理
 │   │   │   ├── auth/              # 登录、token 存/读 sessionStorage
-│   │   │   ├── ui/                # 极简组件（消息列表/输入/状态/指纹核对区/倒计时）
+│   │   │   ├── ui/                # 极简组件（消息列表/输入/状态/信息包气泡/倒计时）
 │   │   │   ├── App.tsx
 │   │   │   └── main.tsx
 │   │   ├── vite.config.ts         # dev 代理 WSS → miniflare；build 输出
@@ -410,8 +401,7 @@ dida/
 │       ├── src/
 │       │   ├── frames.ts          # WS 帧 TS 类型（§6 全部帧）
 │       │   ├── constants.ts       # Crockford 字母表、TTL 档位、上限(8KB/16KB/60s/7d)、info 串
-│       │   ├── code.ts            # 邀请码生成/校验、SHA-256 哈希
-│       │   └── fingerprint.ts     # 指纹派生纯函数（供前端；DO 不用）
+│       │   └── code.ts            # 邀请码生成/校验、SHA-256 哈希
 │       └── package.json
 ├── .github/
 │   └── workflows/
@@ -430,7 +420,7 @@ dida/
 2. **工作区**：根目录 `pnpm install`（workspace 含 web / worker / shared）。
 3. **后端（miniflare）**：`apps/worker` 内用 miniflare 起本地 Worker + Session DO + Guard DO（`pnpm dev:worker`）。miniflare 支持 DO 与 Hibernation 的本地模拟。
 4. **前端（Vite）**：`apps/web` 起 dev server（`pnpm dev:web`），`vite.config.ts` 把 `/admin/login`（HTTP）与 WSS 路径**代理**到 miniflare 端口。
-5. **联调**：浏览器开两个标签页（一个走 `/admin`、一个走 `/`），用 OOB（肉眼/另一窗口）核对安全指纹，验证端到端加密与重连/grace。
+5. **联调**：浏览器开两个标签页（一个走 `/admin`、一个走 `/`），验证端到端加密、信息包收发与重连/grace。
 6. **注意**：PITR 在本地开发不可用（CF 文档：本地不存持久日志）——本地测不到 PITR，属预期。
 
 ---
@@ -464,7 +454,7 @@ dida/
 - [ ] CF Request Logging 已关。
 - [ ] Secrets 已设置、未进仓库。
 - [ ] 限流生效（登录失败锁定、加入 IP 限速）。
-- [ ] 指纹核对、grace 重连、TTL/提前结束清理均联调通过。
+- [ ] grace 重连、TTL/提前结束清理均联调通过；信息包（打包发送/截断预览/一键复制）联调通过。
 
 ---
 
@@ -475,21 +465,22 @@ dida/
 3. **刷新可续聊（60s grace），关标签页即全失**（设计使然）。
 4. **无历史恢复**：密钥丢失后，密文永久不可读（设计使然）。
 5. **断线窗口内消息可能丢失**（尽力补齐，非保证；DO 休眠后内存清零）。
-6. **未核对安全指纹时，不保证抵抗主动中间人攻击**（需 OOB 核对兜底）。
-7. **PITR（30 天）**：CF 可恢复 DO 存储历史；但本方案**不落盘任何密文**，PITR 至多恢复无内容元数据。
-8. **单管理员**：仅一个管理员账号（Secrets 方案），不做多管理员/权限体系。
+6. **不抵抗主动中间人攻击**：安全指纹核对环节已移除（2026-10-24 决策，原流程无人使用）；密钥交换防护依赖前后端分离架构 + TLS。
+7. **6 位邀请码 ≈30 bit 熵**：暴力猜测由 CF 边缘防护 + join 限流兜底，明确接受残余风险。
+8. **PITR（30 天）**：CF 可恢复 DO 存储历史；但本方案**不落盘任何密文**，PITR 至多恢复无内容元数据。
+9. **单管理员**：仅一个管理员账号（Secrets 方案），不做多管理员/权限体系。
 
 ---
 
 ## 19. 实现清单（建议 build order）
 
-1. **monorepo 骨架**：pnpm workspace、`packages/shared`（frames/constants/code/fingerprint 纯函数 + 单测）。
+1. **monorepo 骨架**：pnpm workspace、`packages/shared`（frames/constants/code 纯函数 + 单测）。
 2. **Worker 核心**：`admin.ts`（PBKDF2 校验 + HMAC token 签发/校验）→ `guard-do.ts`（限流）→ `session-do.ts`（状态机 + 首帧校验 + 密钥中继 + 消息中继 + backlog + 三类闹钟 + Hibernation attachment）。
 3. **Worker 路由**：`/admin/login`、WSS 升级派发；wrangler.toml（DO/hibernation/secrets）。
-4. **前端加密层**：`crypto/`（X25519/HKDF/AES-GCM/指纹 + sessionStorage）+ 单测（含指纹一致性、方向性密钥）。
+4. **前端加密层**：`crypto/`（X25519/HKDF/AES-GCM/信息包标记 + sessionStorage）+ 单测（含方向性密钥）。
 5. **前端 WS 层**：`ws/`（首帧鉴权、心跳、重连同/新公钥判定、backlog/lost/end 处理）。
-6. **前端三路由 + 极简 UI**：Entry / Admin（含会话列表、TTL 档位、提前结束、内嵌聊天）/ Chat（消息列表、指纹核对区、倒计时、警告横幅）。
-7. **本地联调**：miniflare + Vite 代理；双标签页端到端（加密、指纹 OOB 核对、刷新续聊、grace、TTL/提前结束清理）。
+6. **前端三路由 + 极简 UI**：Entry / Admin（含会话列表、TTL 档位、提前结束、内嵌聊天）/ Chat（消息列表、信息包气泡、倒计时）。
+7. **本地联调**：miniflare + Vite 代理；双标签页端到端（加密、信息包收发、刷新续聊、grace、TTL/提前结束清理）。
 8. **部署**：GitHub Actions 发前端；wrangler 发后端；§17.3 上线检查。
 9. **README**：运行/部署 + §13 隐私声明 + §18 已知限制。
 
@@ -503,7 +494,9 @@ dida/
 | 密文零落盘（不建消息表） | 契合"不留痕迹"定位；让 PITR 只剩无内容元数据 |
 | Hibernation WebSocket API | CF 官方推荐；连接保活交给平台，内存清零用 attachment/持久存储恢复 |
 | 60s grace 取代"断开即删" | 浏览器无法可靠区分"刷新/断网"与"主动关闭"；grace 让重连体验合理 |
-| 软验证指纹（非硬门禁） | 双方未必总有 OOB 渠道；硬门禁会把"防 MITM"变成"拒绝服务" |
+| 移除安全指纹核对（2026-10-24） | 原软验证流程实际无人使用，形同虚设；残留死代码徒增维护负担。MITM 边界如实声明（§1、§18） |
+| 信息包 = 明文 payload 内嵌标记（2026-10-24） | DO 只转发密文，payload 格式属客户端关注点；不加新帧 → 服务端/backlog/水位零改动，两端同版发布即可 |
+| 6 位邀请码（2026-10-24） | 12 位输入成本高、无场景需要 60 bit 强度；30 bit + CF 边缘防护 + join 限流，明确接受残余风险 |
 | 凭证走 WS 首帧、不进 URL | 避免 token/邀请码泄漏进 devtools/反代日志/APM/错误采集 |
 | 管理员 token 存 sessionStorage（非 cookie） | 前后端跨站，SameSite 拦截 cookie；且与密钥同生命周期更契合 ephemeral |
 | Web Crypto（非 libsodium） | X25519+HKDF+AES-GCM 全内置，零依赖、零 WASM |
@@ -521,8 +514,8 @@ dida/
 - [ ] 同公钥重连 = 续聊；新公钥重连 = 结束 + 全清。
 - [ ] 60s grace 超时 = 结束 + 全清；TTL 到期 = 结束 + 全清；提前结束 = 结束 + 全清。
 - [ ] 双方都离线时，闹钟仍触发清理（实例重新实例化）。
-- [ ] 指纹：双方本地算出一致；MITM 模拟下双方算出**不同**指纹。
 - [ ] 方向性密钥：A→B 用 keyA，B→A 用 keyB；跨方向重放被 AAD 拒。
+- [ ] 信息包：packet 标记随密文往返；packet 非布尔按解密失败丢弃；气泡截断预览 + 一键复制全文。
 - [ ] 单条 >8KB 拒发；backlog 上限（建议内存保留最近 500 条）超出丢弃最旧。
 - [ ] 限流：登录 5 失败锁 15 分；加入同 IP ≤5/分。
 - [ ] 生产零内容日志 + CF Request Logging 关。

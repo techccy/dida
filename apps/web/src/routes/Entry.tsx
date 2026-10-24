@@ -15,7 +15,7 @@ export default function Entry() {
   const join = () => {
     const c = normalizeCode(code);
     if (!isValidCode(c)) {
-      setErr("邀请码无效（应为 12 位字符）");
+      setErr("邀请码无效（应为 6 位字符）");
       return;
     }
     saveCode(c);
@@ -33,7 +33,7 @@ export default function Entry() {
           setErr(null);
         }}
         onKeyDown={(e) => e.key === "Enter" && join()}
-        placeholder="12 位邀请码"
+        placeholder="6 位邀请码"
         autoFocus
       />
       {err && <div className="banner">{err}</div>}

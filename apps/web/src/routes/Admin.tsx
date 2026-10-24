@@ -240,14 +240,13 @@ export default function Admin() {
           <tr>
             <th>状态</th>
             <th>剩余时间</th>
-            <th>指纹核对</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
           {sessions.length === 0 && (
             <tr>
-              <td colSpan={4} className="muted">
+              <td colSpan={3} className="muted">
                 暂无会话
               </td>
             </tr>
@@ -258,14 +257,6 @@ export default function Admin() {
               <td>
                 {s.status === "active" && s.deadline
                   ? fmtRemain(s.deadline, now)
-                  : "—"}
-              </td>
-              <td>
-                {s.status === "active"
-                  ? [
-                      s.adminVerified ? "你 ✓" : "你 ✗",
-                      s.partVerified ? "对方 ✓" : "对方 ✗",
-                    ].join(" / ")
                   : "—"}
               </td>
               <td>

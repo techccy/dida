@@ -20,23 +20,6 @@ beforeAll(async () => {
 });
 
 describe("deriveDirectionKeys", () => {
-  it("双方共享秘密一致（X25519 ECDH 对称性）", async () => {
-    const aSide = await deriveDirectionKeys(
-      admin.privateKey,
-      part.publicKey,
-      SALT,
-      "admin",
-    );
-    const bSide = await deriveDirectionKeys(
-      part.privateKey,
-      admin.publicKey,
-      SALT,
-      "participant",
-    );
-    expect(aSide.sharedSecret).toEqual(bSide.sharedSecret);
-    expect(aSide.sharedSecret).toHaveLength(32);
-  });
-
   it("方向性密钥：admin 的 encKey 能被 participant 的 decKey 解密（反之亦然）", async () => {
     const aSide = await deriveDirectionKeys(
       admin.privateKey,
@@ -140,5 +123,15 @@ describe("encryptMsg / decryptMsg", () => {
     const e2 = await encryptMsg(aSide.encKey, msg, "admin");
     expect(e1.nonce).not.toBe(e2.nonce);
     expect(e1.ct).not.toBe(e2.ct);
+  });
+
+  it("信息包标记：packet 字段随明文一起加解密", async () => {
+    const aSide = await deriveDirectionKeys(admin.privateKey, part.publicKey, SALT, "admin");
+    const bSide = await deriveDirectionKeys(part.privateKey, admin.publicKey, SALT, "participant");
+    const msg = { text: "数据库密码：hunter2", ts: 7, packet: true };
+    const { nonce, ct } = await encryptMsg(aSide.encKey, msg, "admin");
+    const out = await decryptMsg(bSide.decKey, "admin", nonce, ct);
+    expect(out.packet).toBe(true);
+    expect(out.text).toBe("数据库密码：hunter2");
   });
 });

@@ -1,6 +1,6 @@
 /**
  * 邀请码与哈希工具（§8）
- * - 12 位 Crockford Base32（≈60 bit 熵）
+ * - 6 位 Crockford Base32（≈30 bit 熵，【决策 2026-10-24】12 位缩减而来）
  * - 码的明文从不上盘：DO 只存 SHA-256 哈希
  */
 import { CROCKFORD_ALPHABET, CODE_LENGTH } from "./constants";
@@ -43,14 +43,14 @@ export function crockfordDecode(s: string): Uint8Array {
 }
 
 /**
- * 生成 12 位邀请码：取 12 字节随机数的低 60 bit → 12 个 Crockford 字符。
- * 低 60 bit 在均匀 96 bit 中仍是均匀的，熵 = 60 bit。
+ * 生成 6 位邀请码：取随机数的低 30 bit → 6 个 Crockford 字符。
+ * 低 30 bit 在均匀随机数中仍是均匀的，熵 = 30 bit。
  */
 export function generateInviteCode(randomBytes?: Uint8Array): string {
   const buf =
     randomBytes ?? crypto.getRandomValues(new Uint8Array(CODE_LENGTH));
   if (buf.length < CODE_LENGTH) throw new Error("随机字节不足");
-  const n = bytesToBigInt(buf) & ((1n << 60n) - 1n);
+  const n = bytesToBigInt(buf) & ((1n << BigInt(CODE_LENGTH * 5)) - 1n);
   let out = "";
   for (let i = 0; i < CODE_LENGTH; i++) {
     const idx = Number((n >> BigInt((CODE_LENGTH - 1 - i) * 5)) & 31n);
@@ -59,9 +59,9 @@ export function generateInviteCode(randomBytes?: Uint8Array): string {
   return out;
 }
 
-/** 校验邀请码格式（12 位 Crockford） */
+/** 校验邀请码格式（6 位 Crockford） */
 export function isValidCode(s: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{12}$/.test(s);
+  return /^[0-9A-HJKMNP-TV-Z]{6}$/.test(s);
 }
 
 /** 归一化用户输入：大写、去空格/分隔符（允许用户输入小写或带空格） */

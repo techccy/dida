@@ -4,6 +4,7 @@ node_modules/
 # 构建产物
 dist/
 *.local
+.workbuddy/
 
 # miniflare / wrangler 本地状态（含 dev 密钥产物，严禁入库）
 .wrangler/
