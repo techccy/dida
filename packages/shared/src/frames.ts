@@ -78,6 +78,14 @@ export interface OkFrame {
    * 对 §6.2 ok 帧的向后兼容扩展）。
    */
   lastSent?: number;
+  /**
+   * 访问者自身 IP（§5.7 水印素材）：由 Worker 在桥接下行时注入，
+   * 仅 participant 连接携带。DO 不知道访问者 IP；服务端本已知该 IP，
+   * 回传给访问者本人不新增任何服务端可见性。
+   */
+  ip?: string;
+  /** 服务端时间（ms，Worker 注入，仅 participant）：水印静态时刻戳（非客户端时钟） */
+  ts?: number;
 }
 
 export interface PeerFrame {

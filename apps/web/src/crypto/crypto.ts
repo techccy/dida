@@ -10,6 +10,8 @@ import {
   EXTRACT_MAX_BYTES,
   AAD_PREFIX,
   MSG_MAX_BYTES,
+  isValidWatermarkConfig,
+  type WatermarkConfig,
   type Role,
 } from "@dida/shared";
 import { b64ToBytes, bytesToB64, utf8Encode, utf8Decode } from "@dida/shared";
@@ -171,6 +173,12 @@ export interface PlainMessage {
    * 接收端气泡截断展示（前 ~24 字符），提供一键复制全文。
    */
   packet?: boolean;
+  /**
+   * 水印控制消息（§5.7）：字段存在即为控制帧（不进消息列表）。
+   * 仅管理员方向发送；null = 明确未启用水印（渲染门控的放行信号），
+   * 对象 = 启用水印并携带配置。非 null/合法形状按篡改丢弃。
+   */
+  wm?: WatermarkConfig | null;
 }
 
 /**
@@ -237,6 +245,8 @@ export async function decryptMsg(
     if (typeof obj.text !== "string" || typeof obj.ts !== "number")
       throw new DecryptError();
     if (obj.packet !== undefined && typeof obj.packet !== "boolean")
+      throw new DecryptError();
+    if (obj.wm !== undefined && !isValidWatermarkConfig(obj.wm))
       throw new DecryptError();
     return obj;
   } catch {
@@ -419,6 +429,8 @@ export interface ExtractCache {
   style: "packet" | "message";
   remaining: number;
   expiresAt: number;
+  /** 水印（§5.7）：密文内配置 + 兑换时的服务端环境（旧版包无此字段 = 无水印） */
+  wm?: { cfg: WatermarkConfig | null; ip?: string; ts?: number };
 }
 
 export function saveExtractCache(cache: ExtractCache): void {
@@ -447,4 +459,45 @@ export function loadCode(): string | null {
 }
 export function clearCode(): void {
   ssDel(SS_KEYS.CODE);
+}
+
+// ---------- 水印 sessionStorage（§5.7） ----------
+
+/** 访问者环境（首次加入/兑换时的服务端注入值）：首次为准（静态时刻戳决策） */
+export interface WmEnv {
+  ip?: string;
+  ts?: number;
+}
+
+/** participant：按对话码缓存首次加入时的 IP/服务端时间（重连刷新不改写） */
+export function saveWmEnv(code: string, env: WmEnv): void {
+  if (ssGet<WmEnv>("dida.wmEnv." + code)) return; // 首次为准
+  ssSet("dida.wmEnv." + code, env);
+}
+export function loadWmEnv(code: string): WmEnv | null {
+  return ssGet<WmEnv>("dida.wmEnv." + code);
+}
+
+/** 管理员：会话 → 创建时勾选的水印配置（进入聊天后随 E2EE 控制消息下发） */
+export function saveChatWmConfig(
+  sessionId: string,
+  wm: WatermarkConfig | null,
+): void {
+  ssSet("dida.wmChat." + sessionId, wm);
+}
+/** 未配置过（本版本前创建的会话）与显式 null 同样返回 null → 下发 wm:null */
+export function loadChatWmConfig(sessionId: string): WatermarkConfig | null {
+  return ssGet<WatermarkConfig | null>("dida.wmChat." + sessionId) ?? null;
+}
+
+/** participant：按对话码缓存最近收到的水印配置（刷新重连后免等待直接应用） */
+export function savePartWmConfig(
+  code: string,
+  wm: WatermarkConfig | null,
+): void {
+  ssSet("dida.wmPart." + code, wm);
+}
+export function loadPartWmConfig(code: string): WatermarkConfig | null | undefined {
+  const v = ssGet<WatermarkConfig | null>("dida.wmPart." + code);
+  return v === null ? null : (v ?? undefined);
 }

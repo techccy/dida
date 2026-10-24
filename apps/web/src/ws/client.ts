@@ -10,9 +10,11 @@
  */
 import {
   PING_INTERVAL_MS,
+  type OkFrame,
   type RelayedMsgFrame,
   type Role,
   type ServerFrame,
+  type WatermarkConfig,
   b64ToBytes,
   bytesToB64,
 } from "@dida/shared";
@@ -47,6 +49,8 @@ export interface ClientOptions {
   /** 本方 salt（仅管理员） */
   salt?: Uint8Array;
   onState: (state: ConnState, detail?: string) => void;
+  /** ok 帧（每次连接鉴权成功；participant 可由此取得 Worker 注入的 ip/ts，§5.7） */
+  onOk?: (frame: OkFrame) => void;
   onMessage: (msg: PlainMessage) => void;
   /** peer 帧元数据：会话截止时间（§6.2） */
   onPeerMeta: (meta: { deadline?: number }) => void;
@@ -140,6 +144,7 @@ export class DidaClient {
         this.reconnectAttempt = 0;
         // 续聊：服务端记录的本方已发最大 seq（§4.2）
         this.lastSent = typeof frame.lastSent === "number" ? frame.lastSent : 0;
+        this.opts.onOk?.(frame);
         this.setState("waiting-peer");
         this.sendPub();
         this.startHeartbeat();
@@ -305,11 +310,23 @@ export class DidaClient {
 
   /** 发送一条明文消息（加密后经 WS 发出）。packet=true 发送为信息包。返回 false = 超限未发 */
   async sendText(text: string, packet = false): Promise<boolean> {
+    const plain: PlainMessage = { text, ts: Date.now() };
+    if (packet) plain.packet = true;
+    return this.sendPlain(plain);
+  }
+
+  /**
+   * 发送水印控制消息（§5.7）：密钥交换完成后由管理员端自动调用；
+   * wm=null 也是有效信号（明确未启用，放行对端渲染门控）。
+   */
+  async sendWatermark(wm: WatermarkConfig | null): Promise<boolean> {
+    return this.sendPlain({ text: "", ts: Date.now(), wm });
+  }
+
+  private async sendPlain(plain: PlainMessage): Promise<boolean> {
     if (!this.keys || !this.ws || this.ws.readyState !== WebSocket.OPEN)
       return false;
     try {
-      const plain: PlainMessage = { text, ts: Date.now() };
-      if (packet) plain.packet = true;
       const { nonce, ct } = await encryptMsg(this.keys.encKey, plain, this.opts.role);
       this.lastSent += 1;
       this.ws.send(

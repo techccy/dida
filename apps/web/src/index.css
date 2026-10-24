@@ -334,3 +334,52 @@ td {
   word-break: break-word;
   font-size: 15px;
 }
+
+/* ---------- 水印（§5.7） ---------- */
+
+/* 管理端水印勾选行 */
+.wm-opts {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.wm-opts label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.wm-opts input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+/* devtools 打开时的页面模糊遮罩（非销毁；水印 canvas 在其之上保持可见） */
+.wm-devtools-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(127, 127, 127, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.wm-devtools-tip {
+  background: #ffffff;
+  border: 1px solid #c0392b;
+  color: #c0392b;
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-size: 14px;
+  max-width: 320px;
+  text-align: center;
+}
+@media (prefers-color-scheme: dark) {
+  .wm-devtools-tip {
+    background: #1c1d23;
+  }
+}

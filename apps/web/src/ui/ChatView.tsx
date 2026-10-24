@@ -2,18 +2,24 @@
  * 聊天视图（管理员后台内嵌 / 对方聊天页共用）：
  * 消息列表 + 输入框 + 状态指示 + 剩余时间倒计时 + 信息包气泡（§3、§5.4）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DidaClient, type ConnState } from "../ws/client";
 import {
   clearLocalKeyPair,
   generateKeyPair,
   loadAdminSalt,
+  loadChatWmConfig,
   loadLocalKeyPair,
+  loadPartWmConfig,
+  loadWmEnv,
+  savePartWmConfig,
+  saveWmEnv,
   saveLocalKeyPair,
   type KeyPair,
 } from "../crypto/crypto";
+import Watermark, { deviceInfo } from "./Watermark";
 import { wsUrl } from "../api";
-import type { Role } from "@dida/shared";
+import type { Role, WatermarkConfig } from "@dida/shared";
 import { MSG_MAX_BYTES } from "@dida/shared";
 
 interface Props {
@@ -69,10 +75,23 @@ export default function ChatView({
   const [tooLong, setTooLong] = useState(false);
   /** 信息包复制反馈：最近一次复制的消息下标 */
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  /**
+   * 水印配置（§5.7）：undefined = 信号未到（渲染门控，缓冲消息）；
+   * null = 明确未启用；对象 = 启用。管理员端恒 null（不显示水印、不门控）。
+   * participant 初始值取 sessionStorage 缓存（刷新重连免等待）。
+   */
+  const [wm, setWm] = useState<WatermarkConfig | null | undefined>(() =>
+    role === "participant" && code ? loadPartWmConfig(code) : null,
+  );
+  const wmRef = useRef<WatermarkConfig | null | undefined>(wm);
+  /** 渲染门控缓冲：水印信号未到时暂存的待显示消息 */
+  const pendingRef = useRef<ChatMsg[]>([]);
   const clientRef = useRef<DidaClient | null>(null);
   const keyRef = useRef<KeyPair | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const copiedTimerRef = useRef<number | null>(null);
+  /** 渲染门控兜底计时器（§5.7） */
+  const wmGateTimerRef = useRef<number | null>(null);
 
   // 加载/生成本方密钥（sessionStorage；刷新后同密钥 = 续聊）
   useEffect(() => {
@@ -102,14 +121,62 @@ export default function ChatView({
           setState(s);
           setStateDetail(detail);
           if (s === "error" && detail === "bad-cred") onUnauthorized?.();
+          // 管理员端：密钥就绪即下发水印控制消息（§5.7）；未配置也发 wm=null
+          // 作为显式信号，放行对端渲染门控。每次重连重发（seq 递增，幂等应用）。
+          if (role === "admin" && s === "ready") {
+            void clientRef.current?.sendWatermark(
+              loadChatWmConfig(sessionId ?? ""),
+            );
+          }
+          // participant：ready 后 15s 仍未收到水印信号（如部署瞬间的旧版管理端）
+          // → 按"无水印"放行门控，避免界面永久卡死（水印为威慑，放行无损安全性）
+          if (role === "participant" && s === "ready") {
+            if (wmGateTimerRef.current)
+              window.clearTimeout(wmGateTimerRef.current);
+            wmGateTimerRef.current = window.setTimeout(() => {
+              if (wmRef.current === undefined) {
+                wmRef.current = null;
+                setWm(null);
+                const buf = pendingRef.current;
+                pendingRef.current = [];
+                if (buf.length) setMessages((prev) => [...prev, ...buf]);
+              }
+            }, 15_000);
+          }
+        },
+        onOk: (f) => {
+          // participant：缓存首次加入时 Worker 注入的 IP/服务端时间（首次为准）
+          if (role === "participant" && code) {
+            saveWmEnv(code, { ip: f.ip, ts: f.ts });
+          }
         },
         onMessage: (m) => {
           // 能收到对端消息即对端在线：兜底清"对方暂时离开"
           setPeerLeft(false);
-          setMessages((prev) => [
-            ...prev,
-            { text: m.text, ts: m.ts, mine: false, packet: m.packet },
-          ]);
+          // 水印控制消息（§5.7）：不进消息列表；participant 据此解除渲染门控
+          if (m.wm !== undefined) {
+            if (role === "participant") {
+              setWm(m.wm);
+              wmRef.current = m.wm;
+              if (code) savePartWmConfig(code, m.wm);
+              const buf = pendingRef.current;
+              pendingRef.current = [];
+              if (buf.length) setMessages((prev) => [...prev, ...buf]);
+            }
+            return;
+          }
+          const msg: ChatMsg = {
+            text: m.text,
+            ts: m.ts,
+            mine: false,
+            packet: m.packet,
+          };
+          // 渲染门控：水印信号未到前缓冲（内容等水印加载好再出现）
+          if (role === "participant" && wmRef.current === undefined) {
+            if (pendingRef.current.length < 500) pendingRef.current.push(msg);
+            return;
+          }
+          setMessages((prev) => [...prev, msg]);
         },
         onPeerMeta: (meta) => {
           if (meta.deadline !== undefined) setDeadline(meta.deadline);
@@ -129,6 +196,7 @@ export default function ChatView({
     })();
     return () => {
       cancelled = true;
+      if (wmGateTimerRef.current) window.clearTimeout(wmGateTimerRef.current);
       clientRef.current?.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -165,10 +233,13 @@ export default function ChatView({
     }
     const ok = await clientRef.current.sendText(text, packet);
     if (ok) {
-      setMessages((prev) => [
-        ...prev,
-        { text, ts: Date.now(), mine: true, packet },
-      ]);
+      const echo: ChatMsg = { text, ts: Date.now(), mine: true, packet };
+      // 门控期间本方消息同样暂缓显示（与接收侧一致）
+      if (role === "participant" && wmRef.current === undefined) {
+        pendingRef.current.push(echo);
+      } else {
+        setMessages((prev) => [...prev, echo]);
+      }
       setInput("");
       setTooLong(false);
     } else {
@@ -201,6 +272,19 @@ export default function ChatView({
       : `${Math.floor(remain / 3600000)} 小时 ${Math.floor(
           (remain % 3600000) / 60000,
         )} 分 ${Math.floor((remain % 60000) / 1000)} 秒`;
+
+  // 水印文案（§5.7）：按勾选拼接；IP/时间取首次加入时服务端注入值（静态）
+  const wmText = useMemo(() => {
+    if (role !== "participant" || !wm) return "";
+    const env = code ? loadWmEnv(code) : null;
+    const parts: string[] = [];
+    if (wm.custom) parts.push(wm.custom);
+    if (wm.ip) parts.push("IP " + (env?.ip ?? "未知"));
+    if (wm.device) parts.push(deviceInfo());
+    if (wm.time && env?.ts)
+      parts.push(new Date(env.ts).toLocaleString("zh-CN", { hour12: false }));
+    return parts.join(" · ");
+  }, [role, wm, code]);
 
   return (
     <div className="chat-wrap">
@@ -280,6 +364,7 @@ export default function ChatView({
       {stateDetail && state === "error" && (
         <div className="banner">连接错误：{stateDetail}</div>
       )}
+      {wmText && <Watermark text={wmText} />}
     </div>
   );
 }

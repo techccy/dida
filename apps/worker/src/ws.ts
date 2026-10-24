@@ -191,11 +191,33 @@ async function afterOpen(
     doWs.accept();
 
     // ---- 3. 双向泵帧（首帧已被上面消费，不再转发）----
-    // DO → 客户端：DO 的响应（ok/peer/msg/backlog/…）立即发给客户端
+    // DO → 客户端：DO 的响应（ok/peer/msg/backlog/…）立即发给客户端。
+    // participant 端在下行 ok 帧注入访问者自身 IP + 服务端时间（§5.7 水印素材）：
+    // DO 不知道访问者 IP；该 IP 服务端本已知，回传给本人不新增可见性。
+    // 仅尝试桥接后的前若干帧（ok 必为 DO 首帧），避免热路径 JSON 解析开销。
+    let okInjectLeft = role === "participant" ? 5 : 0;
+    const injectOkEnv = (data: string): string => {
+      if (okInjectLeft <= 0) return data;
+      okInjectLeft -= 1;
+      try {
+        const obj = JSON.parse(data) as Record<string, unknown>;
+        if (obj.type === "ok") {
+          okInjectLeft = 0;
+          obj.ip = ip;
+          obj.ts = Date.now();
+          return JSON.stringify(obj);
+        }
+      } catch {
+        /* 非 JSON 帧，原样转发 */
+      }
+      return data;
+    };
     doWs.addEventListener("message", (e) => {
       const data = (e as MessageEvent).data;
       try {
-        server.send(data);
+        server.send(
+          typeof data === "string" && okInjectLeft > 0 ? injectOkEnv(data) : data,
+        );
       } catch {
         /* 客户端已断 */
       }

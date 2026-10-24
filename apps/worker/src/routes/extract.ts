@@ -69,5 +69,9 @@ export async function handleExtract(
     style: p.style,
     remaining: p.remaining,
     expiresAt: p.expiresAt,
+    // 水印素材（§5.7）：访问者自身 IP + 服务端时间，无条件回传给访问者本人
+    // （服务端本已知；是否展示由密文内的水印配置决定，服务端不可见）
+    ip: clientIp(request),
+    ts: Date.now(),
   });
 }

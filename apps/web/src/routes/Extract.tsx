@@ -5,13 +5,21 @@
  *   防止"次数=1 的包被误刷新永久丢失"。
  * - 呈现样式由管理员创建时选定：
  *   packet  = 信息包样式（📦 截断预览 + 一键复制全文，承载可传输内容）
- *   message = 消息样式（全文只读、无复制按钮，承载保密内容；水印防截图为后续需求）
+ *   message = 消息样式（全文只读、无复制按钮，承载保密内容）
+ * - 水印（§5.7）：配置嵌在密文内（ExtractEnvelope），服务端不可见；
+ *   IP/时间取兑换响应中服务端注入的访问者自身值。
  * - 兑换失败（错码/过期/次数耗尽）统一模糊提示【决策】：防探测。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { isValidCodeOfKind, normalizeCode, b64ToBytes } from "@dida/shared";
+import {
+  isValidCodeOfKind,
+  normalizeCode,
+  parseExtractEnvelope,
+  b64ToBytes,
+} from "@dida/shared";
 import { extractRedeem } from "../api";
+import Watermark, { deviceInfo } from "../ui/Watermark";
 import {
   clearExtractCache,
   clearExtractCode,
@@ -60,13 +68,16 @@ export default function Extract() {
       try {
         const payload = await extractRedeem(code);
         const key = await deriveExtractKey(code, b64ToBytes(payload.salt));
-        const text = await decryptExtract(key, payload.nonce, payload.ct);
+        const raw = await decryptExtract(key, payload.nonce, payload.ct);
+        // 明文信封解析（§5.7）：v1 = JSON({v,text,wm})；旧版包为裸文本（无水印）
+        const { text, wm } = parseExtractEnvelope(raw);
         const next: ExtractCache = {
           code,
           text,
           style: payload.style,
           remaining: payload.remaining,
           expiresAt: payload.expiresAt,
+          wm: { cfg: wm, ip: payload.ip, ts: payload.ts },
         };
         saveExtractCache(next);
         if (!cancelled) {
@@ -100,6 +111,19 @@ export default function Extract() {
     clearExtractCache();
     nav("/", { replace: true });
   };
+
+  // 水印文案（§5.7）：按密文内配置拼接；IP/时间为兑换时服务端注入值（静态）
+  const wmText = useMemo(() => {
+    const w = cache?.wm;
+    if (!w?.cfg) return "";
+    const parts: string[] = [];
+    if (w.cfg.custom) parts.push(w.cfg.custom);
+    if (w.cfg.ip) parts.push("IP " + (w.ip ?? "未知"));
+    if (w.cfg.device) parts.push(deviceInfo());
+    if (w.cfg.time && w.ts)
+      parts.push(new Date(w.ts).toLocaleString("zh-CN", { hour12: false }));
+    return parts.join(" · ");
+  }, [cache]);
 
   if (busy) {
     return (
@@ -151,6 +175,7 @@ export default function Extract() {
       <button style={{ marginTop: 12 }} onClick={leave}>
         完成（清除本页内容）
       </button>
+      {wmText && <Watermark text={wmText} />}
     </div>
   );
 }

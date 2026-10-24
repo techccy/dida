@@ -148,6 +148,9 @@ export async function extractRedeem(
   style: "packet" | "message";
   remaining: number;
   expiresAt: number;
+  /** 水印素材（§5.7）：访问者自身 IP + 服务端时间（服务端无条件注入） */
+  ip: string;
+  ts: number;
 }> {
   const res = await fetch(apiBase() + "/extract", {
     method: "POST",
@@ -162,5 +165,7 @@ export async function extractRedeem(
     style: "packet" | "message";
     remaining: number;
     expiresAt: number;
+    ip: string;
+    ts: number;
   };
 }

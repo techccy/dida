@@ -15,6 +15,8 @@ import {
   generateCode,
   parseCustomCode,
   sha256Hex,
+  type ExtractEnvelope,
+  type WatermarkConfig,
 } from "@dida/shared";
 import {
   ApiError,
@@ -34,8 +36,108 @@ import {
   encryptExtract,
   loadAdminToken,
   saveAdminToken,
+  saveChatWmConfig,
 } from "../crypto/crypto";
 import ChatView from "../ui/ChatView";
+
+// ---------- 水印配置（§5.7）【决策：配置只随 E2EE 密文传输】 ----------
+
+/** 勾选草稿（UI 状态） */
+interface WmDraft {
+  enabled: boolean;
+  custom: string;
+  ip: boolean;
+  device: boolean;
+  time: boolean;
+}
+const WM_DRAFT_DEFAULT: WmDraft = {
+  enabled: false,
+  custom: "",
+  ip: true,
+  device: true,
+  time: true,
+};
+
+/** 草稿 → 配置：未启用返回 null（= 显式关闭信号）；启用但全不勾 = 空配置对象 */
+function draftToWmConfig(d: WmDraft): WatermarkConfig | null {
+  if (!d.enabled) return null;
+  const cfg: WatermarkConfig = {};
+  const custom = d.custom.trim();
+  if (custom) cfg.custom = custom;
+  if (d.ip) cfg.ip = true;
+  if (d.device) cfg.device = true;
+  if (d.time) cfg.time = true;
+  return cfg;
+}
+
+function WmEditor({
+  draft,
+  onChange,
+}: {
+  draft: WmDraft;
+  onChange: (d: WmDraft) => void;
+}) {
+  return (
+    <details style={{ marginTop: 6 }}>
+      <summary className="muted" style={{ cursor: "pointer" }}>
+        水印（可选）：在对方页面上全屏斜向平铺显示
+      </summary>
+      <div className="wm-opts" style={{ marginTop: 8 }}>
+        <label>
+          <input
+            type="checkbox"
+            checked={draft.enabled}
+            onChange={(e) => onChange({ ...draft, enabled: e.target.checked })}
+          />
+          启用水印
+        </label>
+        {draft.enabled && (
+          <>
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.ip}
+                onChange={(e) => onChange({ ...draft, ip: e.target.checked })}
+              />
+              访问者 IP
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.device}
+                onChange={(e) =>
+                  onChange({ ...draft, device: e.target.checked })
+                }
+              />
+              设备信息
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.time}
+                onChange={(e) => onChange({ ...draft, time: e.target.checked })}
+              />
+              时间
+            </label>
+          </>
+        )}
+      </div>
+      {draft.enabled && (
+        <input
+          value={draft.custom}
+          maxLength={200}
+          onChange={(e) => onChange({ ...draft, custom: e.target.value })}
+          placeholder="自定义水印内容（可选，≤200 字）"
+          style={{ marginTop: 8 }}
+        />
+      )}
+      <div className="muted" style={{ marginTop: 6 }}>
+        IP 与时间为服务端在对方加入/提取时注入（静态）；设备信息由对方浏览器解析展示。
+        水印为溯源威慑，复制按钮复制出的纯文本不含水印——需要强溯源的内容请用「消息（只读展示）」样式交付。
+      </div>
+    </details>
+  );
+}
 
 function fmtRemain(deadline: number, now: number): string {
   const remain = Math.max(0, deadline - now);
@@ -69,6 +171,8 @@ export default function Admin() {
   const [copied, setCopied] = useState(false);
   // 自定义对话码【决策 2026-10-24：全局允许自定义配对码】：留空 = 随机生成
   const [customChatCode, setCustomChatCode] = useState("");
+  // 会话水印草稿（§5.7）：创建成功后存 sessionStorage，进入聊天随 E2EE 下发
+  const [chatWm, setChatWm] = useState<WmDraft>(WM_DRAFT_DEFAULT);
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [endedReason, setEndedReason] = useState<string | null>(null);
@@ -85,6 +189,8 @@ export default function Admin() {
   const [newExtractCopied, setNewExtractCopied] = useState(false);
   // 自定义提取码【决策 2026-10-24】：留空 = 随机生成；仍纯前端生成，码明文不经服务端
   const [customExtractCode, setCustomExtractCode] = useState("");
+  // 提取包水印草稿（§5.7）：配置嵌入加密明文信封，服务端不可见
+  const [extractWm, setExtractWm] = useState<WmDraft>(WM_DRAFT_DEFAULT);
 
   const refresh = useCallback(async () => {
     try {
@@ -175,6 +281,8 @@ export default function Admin() {
       }
       // 码明文只在创建响应里返回一次（§8）；刷新后不再可见
       const created = await createSession(ttlMs, code);
+      // 水印配置存 sessionStorage（§5.7）：进入聊天后密钥交换完成即随 E2EE 下发
+      saveChatWmConfig(created.sessionId, draftToWmConfig(chatWm));
       setNewCode(created.code);
       setCopied(false);
       setCustomChatCode("");
@@ -234,7 +342,13 @@ export default function Admin() {
       }
       const salt = crypto.getRandomValues(new Uint8Array(32));
       const key = await deriveExtractKey(code, salt);
-      const { nonce, ct } = await encryptExtract(key, extractContent);
+      // 明文信封（§5.7）：内容 + 水印配置一起加密，服务端只见密文
+      const envelope: ExtractEnvelope = {
+        v: 1,
+        text: extractContent,
+        wm: draftToWmConfig(extractWm),
+      };
+      const { nonce, ct } = await encryptExtract(key, JSON.stringify(envelope));
       const codeHash = await sha256Hex(code);
       await createExtract({
         codeHash,
@@ -347,6 +461,8 @@ export default function Admin() {
       <div className="muted" style={{ marginTop: 6 }}>
         会话时长从对方加入时起算；未使用的码 7 天后自动作废。自定义码留空则随机生成；弱码会降低防猜测强度。
       </div>
+
+      <WmEditor draft={chatWm} onChange={setChatWm} />
 
       {newCode && (
         <div style={{ margin: "12px 0", border: "1px solid #27ae60", borderRadius: 8, padding: 12 }}>
@@ -489,6 +605,8 @@ export default function Admin() {
         <div className="muted" style={{ marginTop: 6 }}>
           自定义码留空则随机生成。提取码密钥由码派生，弱码会显著降低抗离线枚举强度，敏感内容建议用随机码。
         </div>
+
+        <WmEditor draft={extractWm} onChange={setExtractWm} />
         {extractErr && <div className="banner">{extractErr}</div>}
 
         {newExtractCode && (
