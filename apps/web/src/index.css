@@ -228,14 +228,89 @@ td {
   margin: 4px 0 10px;
 }
 
-/* 主页面：输入框 + 粘贴按钮（§3） */
+/* 主页面：分格配对码输入（§3，仿 Filebox：1 前缀框-8 位框）+ 粘贴按钮 */
 .entry-row {
   display: flex;
   gap: 8px;
   margin: 8px 0;
+  align-items: center;
 }
-.entry-row .code-input {
+
+.code-boxes {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1;
+  cursor: text;
+}
+
+/* 单一隐藏 input 承载状态：保持可聚焦/可粘贴/移动端键盘，视觉由格子呈现 */
+.code-boxes-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  padding: 0;
+  font-size: 16px; /* ≥16px 防 iOS 聚焦缩放 */
+}
+
+.code-box {
+  width: 38px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #8a8f99;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  text-transform: uppercase;
+  position: relative;
+}
+.code-box.active {
+  border-color: #2b6cb0;
+  box-shadow: 0 0 0 1px #2b6cb0;
+}
+.code-box.active::after {
+  content: "";
+  width: 1px;
+  height: 24px;
+  background: #2b6cb0;
+  position: absolute;
+  animation: code-caret 1s step-end infinite;
+}
+.code-box.invalid {
+  border-color: #c0392b;
+}
+@keyframes code-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.code-dash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  color: #6b7078;
+}
+
+/* 窄屏收窄格子，避免 9 格 + 连字符溢出 */
+@media (max-width: 420px) {
+  .code-box {
+    width: 30px;
+    height: 44px;
+    font-size: 17px;
+  }
+  .code-boxes {
+    gap: 4px;
+  }
 }
 
 /* 提取页（§5.6）：信息包样式 = 截断预览 + 复制；消息样式 = 只读全文无复制 */
