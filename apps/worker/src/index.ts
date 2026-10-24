@@ -51,6 +51,12 @@ export default {
       return handleExtract(request, env);
     }
 
+    // Workers Routes 不分方法：/extract 的 GET 也落到 Worker。
+    // SPA 提取页在 /e（Pages 托管）；这里 302 兜底旧深链/直达访问。
+    if (path === EXTRACT_PATH && request.method === "GET") {
+      return Response.redirect(url.origin + "/e", 302);
+    }
+
     if (path === WS_PATH && request.method === "GET") {
       return handleWsUpgrade(request, env);
     }

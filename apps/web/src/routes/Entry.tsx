@@ -1,7 +1,7 @@
 /**
  * 主页面（§3）：仅一个"配对码输入框 + 粘贴按钮 + 加入按钮"。
  * 无 logo、无功能介绍、无多余信息；码明文只存 sessionStorage，不进 URL。
- * 按前缀路由【决策】：C=对话码 → /c；E=提取码 → /extract。
+ * 按前缀路由【决策】：C=对话码 → /c；E=提取码 → /e（不用 /extract，与 Worker API 路径冲突）。
  * 前缀必填：缺前缀直接报错，不做自动猜测。
  */
 import { useState } from "react";
@@ -35,7 +35,7 @@ export default function Entry() {
       nav("/c");
     } else {
       saveExtractCode(c);
-      nav("/extract");
+      nav("/e");
     }
   };
 
