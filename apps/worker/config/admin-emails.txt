@@ -1,7 +1,2 @@
-# dida 管理员邮箱白名单（本地文件，构建时内联进 Worker）
-# 规则：一行一个邮箱；# 起为注释；大小写不敏感；必须与统一账号中心
-# （account.techccy.com）注册的邮箱完全对应。
-# 修改后需重新 `wrangler deploy` 才会生效。
-
-# 示例（去掉行首 # 即生效）：
-# chency@example.com
+admin@techccy.com
+18998812918@189.cn
