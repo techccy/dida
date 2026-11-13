@@ -21,8 +21,8 @@ routes = [
 # 生产 [vars] 只放可公开的账号中心应用凭证（client_id / redirect_uri）。
 # client_secret 走 `wrangler secret put ACCOUNT_CLIENT_SECRET`，绝不入库；
 # 回调地址须在 account.techccy.com/admin「应用管理」的白名单中登记（精确匹配）。
-ACCOUNT_CLIENT_ID = ""
-ACCOUNT_REDIRECT_URI = ""
+ACCOUNT_CLIENT_ID = "app_S5wgiIHD90zW"
+ACCOUNT_REDIRECT_URI = "https://dida.techccy.com/admin"
 
 [[durable_objects.bindings]]
 name = "SESSION_DO"
