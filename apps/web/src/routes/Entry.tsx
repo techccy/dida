@@ -44,7 +44,7 @@ export default function Entry() {
       // 8 位无前缀 → 提示补首字母；其余按无效处理
       setErr(
         /^[0-9A-HJKMNP-TV-Z]{8}$/.test(c)
-          ? "请输入完整配对码（含首字母：对话码 C、提取码 E）"
+          ? "请输入完整配对码"
           : "配对码无效",
       );
       return;
@@ -157,10 +157,10 @@ export default function Entry() {
         <div className="entry-actions">
           <button onClick={() => void paste()}>粘贴</button>
           <button className="primary" onClick={join} disabled={code.length < TOTAL_LEN}>
-            加入
+            确认
           </button>
         </div>
-        <p className="entry-foot">C 对话 · E 提取</p>
+        <p className="entry-foot">SOMETHING HAPPENED</p>
       </main>
     </div>
   );
