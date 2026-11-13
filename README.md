@@ -32,7 +32,7 @@ pnpm dev:worker       # miniflare 本地模拟 Worker + Durable Objects（默认
 pnpm dev:web          # Vite dev server（5173，代理 /admin/* 与 /ws 到 miniflare）
 ```
 
-浏览器开两个标签页联调：一个走 `/admin`（管理员，本地口令见 `apps/worker/.dev.vars` 的 `DEV_ADMIN_PASSWORD`，首次请自建该文件——已 gitignore），一个走 `/`（对方凭码加入）。详见 DESIGN.md §16。
+浏览器开两个标签页联调：一个走 `/admin`（管理员，登录走统一账号中心 OAuth，本地凭证见 `apps/worker/.dev.vars` 的 `ACCOUNT_CLIENT_ID` / `ACCOUNT_CLIENT_SECRET` / `ACCOUNT_REDIRECT_URI`，首次请自建该文件——已 gitignore；账号中心应用白名单需登记 `http://localhost:5173/admin`），一个走 `/`（对方凭码加入）。详见 DESIGN.md §16。
 
 注意：PITR 在本地开发不可用（本地不存持久日志），属预期。
 
@@ -54,13 +54,17 @@ pnpm --filter web build   # tsc --noEmit + vite build
 ```bash
 cd apps/worker
 wrangler deploy                        # 部署（自动创建 §17.0 的两条路由）
-printf '%s' "<pbkdf2哈希>" | wrangler secret put ADMIN_PASS_HASH
+printf '%s' "<client_secret>" | wrangler secret put ACCOUNT_CLIENT_SECRET
 printf '%s' "<32字节b64>" | wrangler secret put TOKEN_SIGNING_KEY
 ```
 
 - Secret 写入用 `wrangler secret put NAME < file`（文件**不带尾部换行**），避免杂质导致线上解析异常。
-- `ADMIN_PASS_HASH` 生成：`pbkdf2-sha256$100000$<salt-b64>$<hash-b64>`（迭代次数**必须 ≤ 100000**——Cloudflare Workers WebCrypto 硬上限，本地 miniflare 无此限制）。
-- 本地开发口令放 `apps/worker/.dev.vars`（`DEV_ADMIN_PASSWORD=...`，已 gitignore，仅 `wrangler dev` 加载）；生产 `[vars]` 不含任何口令类变量。
+- 管理员登录为统一账号中心 OAuth（account.techccy.com）：
+  1. 在 account.techccy.com/admin「应用管理」创建应用，回调地址白名单填 `https://dida.techccy.com/admin`（**精确匹配**）；
+  2. `apps/worker/wrangler.toml` 的 `[vars]` 填 `ACCOUNT_CLIENT_ID` 与 `ACCOUNT_REDIRECT_URI = "https://dida.techccy.com/admin"`；
+  3. `client_secret` 只走 Secret，绝不入库/进前端；
+  4. 管理员邮箱白名单在本地文件 `apps/worker/config/admin-emails.txt`（一行一个邮箱，构建时内联进 Worker，修改后需重新部署）。
+- 本地开发凭证放 `apps/worker/.dev.vars`（`ACCOUNT_CLIENT_ID` / `ACCOUNT_CLIENT_SECRET` / `ACCOUNT_REDIRECT_URI=http://localhost:5173/admin`，已 gitignore，仅 `wrangler dev` 加载）；生产 `[vars]` 不含任何密钥类变量。
 
 并在 CF 控制台**关闭该 Worker 的 Request Logging**。
 

@@ -12,12 +12,14 @@ export interface Env {
   GUARD_DO: DurableObjectNamespace<GuardDO>;
   REGISTRY_DO: DurableObjectNamespace<RegistryDO>;
   EXTRACT_DO: DurableObjectNamespace<ExtractDO>;
-  /** Worker Secret：pbkdf2-sha256$<iter>$<salt-b64>$<hash-b64>（§9） */
-  ADMIN_PASS_HASH?: string;
+  /** 账号中心应用凭证（可公开）：account.techccy.com/admin「应用管理」创建 */
+  ACCOUNT_CLIENT_ID?: string;
+  /** OAuth 回调地址：必须与账号中心应用白名单完全一致（含协议/路径/无尾斜杠） */
+  ACCOUNT_REDIRECT_URI?: string;
+  /** Worker Secret：账号中心应用密钥，只存服务端，绝不进前端 */
+  ACCOUNT_CLIENT_SECRET?: string;
   /** Worker Secret：HMAC 签名密钥（b64，§9） */
   TOKEN_SIGNING_KEY?: string;
-  /** 仅本地开发：无 ADMIN_PASS_HASH 时比对的口令（wrangler.toml [vars]） */
-  DEV_ADMIN_PASSWORD?: string;
 }
 
 /**

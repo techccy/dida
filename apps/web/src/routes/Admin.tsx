@@ -1,11 +1,11 @@
 /**
  * 管理员后台（§3、§9）：
- * 登录（PBKDF2 口令 → 8h HMAC token，存 sessionStorage）→
+ * 登录（统一账号中心 OAuth → 邮箱白名单 → 8h HMAC token，存 sessionStorage）→
  * 创建会话（TTL 档位）→ 会话列表（状态/剩余时间倒计时/提前结束）→
  * 点进活跃会话内嵌聊天视图。
  * token 只走 Authorization 头与 WS 首帧，不进 URL（§9）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EXTRACT_MAX_BYTES,
   EXTRACT_MAX_COUNT,
@@ -157,9 +157,10 @@ const STATUS_TEXT: Record<SessionInfo["status"], string> = {
 
 export default function Admin() {
   const [authed, setAuthed] = useState(() => loadAdminToken() !== null);
-  const [password, setPassword] = useState("");
   const [loginErr, setLoginErr] = useState<string | null>(null);
   const [loginBusy, setLoginBusy] = useState(false);
+  // OAuth 回调一次性处理（React StrictMode 下 effect 双跑，授权码仅可用一次）
+  const oauthHandled = useRef(false);
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [now, setNow] = useState(Date.now());
@@ -229,34 +230,56 @@ export default function Admin() {
     return () => window.removeEventListener("dida-admin-401", on401);
   }, []);
 
-  const doLogin = async () => {
-    if (!password) return;
-    setLoginBusy(true);
-    setLoginErr(null);
-    try {
-      const res = await fetch(apiBase() + "/admin/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      if (res.status === 429) {
-        setLoginErr("失败次数过多，已锁定 15 分钟");
-        return;
+  // OAuth 回调：账号中心 302 回本页 ?code=...&state=... → 服务端换 token。
+  // 回调参数立即从地址栏清除（一次性授权码不留在浏览器历史，§9）。
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+    if (!code && !state) return;
+    if (oauthHandled.current) return;
+    oauthHandled.current = true;
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.hash,
+    );
+    const run = async () => {
+      setLoginBusy(true);
+      setLoginErr(null);
+      try {
+        if (!code || !state) {
+          setLoginErr("登录回调参数缺失");
+          return;
+        }
+        const res = await fetch(apiBase() + "/admin/oauth/callback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, state }),
+        });
+        if (res.status === 429) {
+          setLoginErr("失败次数过多，已锁定 15 分钟");
+          return;
+        }
+        if (res.status === 403) {
+          setLoginErr("该账号不在管理员邮箱白名单内");
+          return;
+        }
+        if (!res.ok) {
+          setLoginErr("登录失败，请重新登录");
+          return;
+        }
+        const data = (await res.json()) as { token: string };
+        saveAdminToken(data.token);
+        setAuthed(true);
+      } catch {
+        setLoginErr("网络错误");
+      } finally {
+        setLoginBusy(false);
       }
-      if (!res.ok) {
-        setLoginErr("口令错误");
-        return;
-      }
-      const data = (await res.json()) as { token: string };
-      saveAdminToken(data.token);
-      setAuthed(true);
-      setPassword("");
-    } catch {
-      setLoginErr("网络错误");
-    } finally {
-      setLoginBusy(false);
-    }
-  };
+    };
+    void run();
+  }, []);
 
   const logout = () => {
     clearAdminToken();
@@ -396,27 +419,19 @@ export default function Admin() {
           <h1>
             did<em>a</em> · 管理端
           </h1>
-          <div className="field">
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setLoginErr(null);
-              }}
-              onKeyDown={(e) => e.key === "Enter" && void doLogin()}
-              placeholder="管理员口令"
-              autoFocus
-            />
+          <div className="muted" style={{ marginBottom: 14 }}>
+            通过统一账号中心登录；仅白名单邮箱可进入管理端。
           </div>
           {loginErr && <div className="banner">{loginErr}</div>}
           <button
             className="primary"
-            onClick={() => void doLogin()}
+            onClick={() => {
+              window.location.assign(apiBase() + "/admin/oauth/start");
+            }}
             disabled={loginBusy}
             style={{ width: "100%" }}
           >
-            {loginBusy ? "登录中…" : "登录"}
+            {loginBusy ? "登录中…" : "使用统一账号登录"}
           </button>
         </div>
       </div>

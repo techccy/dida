@@ -1,6 +1,7 @@
 /**
  * Worker 入口（§15）：路由分发。
- * - POST /admin/login            管理员登录（§9）
+ * - GET  /admin/oauth/start     管理员登录跳转（统一账号中心 OAuth，§9）
+ * - POST /admin/oauth/callback  管理员登录回调（code 换 token + 邮箱白名单，§9）
  * - GET/POST /admin/sessions...  管理员 API（§9）
  * - GET/POST /admin/extracts...  提取包管理 API（§5.6）
  * - POST /extract                提取（凭提取码兑换密文，§5.6）
@@ -10,7 +11,7 @@
  * 零内容日志（§11）：本文件及所有路由不记录任何请求体/会话内容。
  */
 import { handleAdminApi, handleAdminExtractApi } from "./routes/admin";
-import { handleLogin } from "./routes/login";
+import { handleOAuthCallback, handleOAuthStart } from "./routes/oauth";
 import { handleExtract, EXTRACT_PATH } from "./routes/extract";
 import { handleWsUpgrade, WS_PATH } from "./ws";
 import { corsHeaders, json, type Env } from "./env";
@@ -35,8 +36,12 @@ export default {
       return json({ ok: true });
     }
 
-    if (path === "/admin/login" && request.method === "POST") {
-      return handleLogin(request, env);
+    if (path === "/admin/oauth/start" && request.method === "GET") {
+      return handleOAuthStart(request, env);
+    }
+
+    if (path === "/admin/oauth/callback" && request.method === "POST") {
+      return handleOAuthCallback(request, env);
     }
 
     if (path.startsWith("/admin/sessions")) {

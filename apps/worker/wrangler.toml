@@ -3,6 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
+# 模块规则：*.txt 以字符串内联（管理员邮箱白名单，构建时打进 Worker）
+rules = [
+  { type = "Text", globs = ["**/admin-emails.txt"] },
+]
+
 # 生产路由：把 dida.techccy.com 的 API 路径路由到本 Worker，其余路径继续
 # 回源 GitHub Pages。同源调用，前端无需 VITE_API_URL/VITE_WS_URL。
 # 背景：*.workers.dev 在中国大陆被 DNS 污染 + 443 阻断，管理员/用户无法直连。
@@ -13,8 +18,11 @@ routes = [
 ]
 
 [vars]
-# 生产 [vars] 不放任何口令类变量。本地开发口令放 .dev.vars（不入库，
-# 见 .gitignore），wrangler dev 自动加载；生产登录走 ADMIN_PASS_HASH Secret。
+# 生产 [vars] 只放可公开的账号中心应用凭证（client_id / redirect_uri）。
+# client_secret 走 `wrangler secret put ACCOUNT_CLIENT_SECRET`，绝不入库；
+# 回调地址须在 account.techccy.com/admin「应用管理」的白名单中登记（精确匹配）。
+ACCOUNT_CLIENT_ID = ""
+ACCOUNT_REDIRECT_URI = ""
 
 [[durable_objects.bindings]]
 name = "SESSION_DO"
