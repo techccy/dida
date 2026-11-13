@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dida — 主页设计稿</title>
+<style>
+  /* 设计稿内嵌 tokens（实现时抽为 index.css variables） */
+  :root {
+    --d-bg: #0c0e12; --d-surface: #14171d; --d-surface-2: #1a1e26;
+    --d-border: #262b35; --d-border-strong: #333a47;
+    --d-text: #e8eaf0; --d-text-muted: #8a92a3; --d-text-faint: #5c6474;
+    --d-accent: #38d39f; --d-accent-strong: #4ee3b1;
+    --d-accent-dim: rgba(56,211,159,.14); --d-accent-border: rgba(56,211,159,.45);
+    --d-font-display: "Space Grotesk", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --d-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --d-radius-sm: 6px; --d-radius-md: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--d-bg); color: var(--d-text);
+    font-family: var(--d-font-display);
+    font-size: 15px; line-height: 1.55;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+  }
+  /* 微氛围：暗角青绿光晕 + 极淡噪点，不承载信息 */
+  .atmos { position: fixed; inset: 0; pointer-events: none; }
+  .atmos.glow {
+    background:
+      radial-gradient(ellipse 60% 45% at 50% 38%, rgba(56,211,159,.055), transparent 70%),
+      radial-gradient(ellipse 100% 100% at 50% 50%, transparent 55%, rgba(0,0,0,.5) 100%);
+  }
+  .atmos.noise { opacity: .035; }
+
+  .entry { width: min(420px, 92vw); position: relative; z-index: 1; }
+  .entry-mark {
+    text-align: center; margin-bottom: 40px;
+    font-family: var(--d-font-mono); font-size: 13px;
+    color: var(--d-text-faint); letter-spacing: .3em;
+  }
+  .entry-hint { text-align: center; color: var(--d-text-muted); font-size: 14px; margin-bottom: 20px; }
+
+  /* 分格码输入：1 前缀框 + 连字符 + 8 位框（单一隐藏 input 承载状态，视觉切格） */
+  .code-row { display: flex; align-items: center; justify-content: center; gap: 7px; position: relative; cursor: text; }
+  .code-row input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; border: none; padding: 0; font-size: 16px;
+  }
+  .box {
+    width: 40px; height: 54px; border-radius: var(--d-radius-sm);
+    border: 1px solid var(--d-border); background: var(--d-surface);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--d-font-mono); font-size: 22px; text-transform: uppercase;
+    transition: border-color .15s, background .15s;
+  }
+  .box.filled { border-color: var(--d-border-strong); }
+  .box.active {
+    border-color: var(--d-accent); background: var(--d-accent-dim); position: relative;
+  }
+  .box.active::after {
+    content: ""; width: 2px; height: 26px; background: var(--d-accent);
+    position: absolute; animation: caret 1s step-end infinite; border-radius: 1px;
+  }
+  .dash { color: var(--d-text-faint); font-family: var(--d-font-mono); font-size: 20px; }
+  @keyframes caret { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+  .actions { display: flex; gap: 10px; margin-top: 28px; }
+  .btn {
+    flex: 1; font: inherit; cursor: pointer; border-radius: var(--d-radius-sm);
+    padding: 12px 0; border: 1px solid var(--d-border); background: transparent;
+    color: var(--d-text); transition: border-color .15s, background .15s;
+  }
+  .btn:hover { border-color: var(--d-border-strong); background: var(--d-surface); }
+  .btn.primary {
+    background: var(--d-accent); border-color: var(--d-accent);
+    color: #0c0e12; font-weight: 600;
+  }
+  .btn.primary:hover { background: var(--d-accent-strong); }
+  .btn.primary:disabled { opacity: .4; cursor: default; }
+
+  .entry-foot {
+    margin-top: 44px; text-align: center; color: var(--d-text-faint);
+    font-size: 12px; letter-spacing: .05em;
+  }
+  .entry-error {
+    margin-top: 16px; text-align: center; font-size: 13px; color: #e5484d; display: none;
+  }
+</style>
+</head>
+<body>
+  <div class="atmos glow"></div>
+  <svg class="atmos noise" xmlns="http://www.w3.org/2000/svg" width="160" height="160">
+    <filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2"/></filter>
+    <rect width="160" height="160" filter="url(#n)" opacity="0.6"/>
+  </svg>
+
+  <main class="entry">
+    <div class="entry-mark">· · ·</div>
+    <p class="entry-hint">输入配对码</p>
+    <div class="code-row">
+      <div class="box active"></div>
+      <span class="dash">-</span>
+      <div class="box filled">K</div><div class="box filled">7</div><div class="box filled">M</div>
+      <div class="box filled">3</div><div class="box filled">V</div><div class="box filled">9</div>
+      <div class="box filled">Q</div>
+      <input type="text" maxlength="9" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="配对码">
+    </div>
+    <div class="entry-error">配对码无效</div>
+    <div class="actions">
+      <button class="btn">粘贴</button>
+      <button class="btn primary" disabled>加入</button>
+    </div>
+    <p class="entry-foot">C 对话 · E 提取</p>
+  </main>
+</body>
+</html>

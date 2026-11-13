@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dida — 提取页设计稿（/extract）</title>
+<style>
+  :root {
+    --d-bg: #0c0e12; --d-surface: #14171d; --d-surface-2: #1a1e26;
+    --d-border: #262b35; --d-border-strong: #333a47;
+    --d-text: #e8eaf0; --d-text-muted: #8a92a3; --d-text-faint: #5c6474;
+    --d-accent: #38d39f; --d-accent-strong: #4ee3b1;
+    --d-accent-dim: rgba(56,211,159,.14); --d-accent-border: rgba(56,211,159,.45);
+    --d-font-display: "Space Grotesk", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --d-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --d-radius-lg: 12px; --d-radius-md: 8px; --d-radius-sm: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--d-bg); color: var(--d-text); font-family: var(--d-font-display); font-size: 15px; line-height: 1.55; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .wrap { width: min(680px, 94vw); }
+
+  /* 兑换屏 */
+  .redeem { text-align: center; }
+  .redeem h1 { font-size: 17px; font-weight: 600; margin-bottom: 22px; color: var(--d-text-muted); }
+  .redeem .code-row { display: flex; justify-content: center; margin-bottom: 26px; }
+  .redeem input {
+    font-family: var(--d-font-mono); font-size: 21px; letter-spacing: .14em; text-transform: uppercase;
+    text-align: center; width: 320px; padding: 13px 16px;
+    border: 1px solid var(--d-border-strong); border-radius: var(--d-radius-sm);
+    background: var(--d-surface); color: var(--d-accent);
+  }
+  .redeem input:focus { outline: none; border-color: var(--d-accent-border); }
+  .redeem button { font: inherit; cursor: pointer; padding: 12px 42px; border-radius: var(--d-radius-sm); background: var(--d-accent); border: 1px solid var(--d-accent); color: #0c0e12; font-weight: 600; }
+  .redeem .err { margin-top: 14px; font-size: 13px; color: #e5484d; }
+
+  /* 结果屏（信息包样式：截断预览 + 一键复制） */
+  .card { background: var(--d-surface); border: 1px solid var(--d-border); border-radius: var(--d-radius-lg); padding: 24px; margin-top: 14px; }
+  .ok-head { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .ok-head .st { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--d-accent); }
+  .ok-head .st::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--d-accent); }
+  .ok-head .meta { margin-left: auto; font-size: 12px; color: var(--d-text-faint); font-family: var(--d-font-mono); }
+
+  .pk-label { font-size: 13px; color: var(--d-accent); margin-bottom: 8px; }
+  .pv-box {
+    font-family: var(--d-font-mono); font-size: 15px; color: var(--d-text-muted);
+    background: var(--d-surface-2); border: 1px dashed var(--d-accent-border);
+    border-radius: var(--d-radius-md); padding: 12px 14px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 14px;
+  }
+  .copy-all { width: 100%; font: inherit; cursor: pointer; padding: 12px; border-radius: var(--d-radius-sm); background: var(--d-accent); border: 1px solid var(--d-accent); color: #0c0e12; font-weight: 600; }
+
+  /* 结果屏（消息样式：只读全文无复制） */
+  .readonly { border-top: 1px dashed var(--d-border-strong); margin-top: 26px; padding-top: 22px; }
+  .ro-label { font-size: 13px; color: var(--d-text-muted); margin-bottom: 10px; }
+  .ro-body { font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; user-select: text; }
+  .foot { margin-top: 18px; font-size: 12px; color: var(--d-text-faint); text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- 兑换屏 -->
+  <section class="redeem">
+    <h1>输入提取码</h1>
+    <div class="code-row"><input placeholder="E-XXXXXXXX" maxlength="10" autocapitalize="characters" autocomplete="off" spellcheck="false"></div>
+    <button>提取</button>
+    <div class="err">提取码无效或已失效</div>
+  </section>
+
+  <!-- 结果屏（同一页兑换成功后切换；此处展示两种呈现样式） -->
+  <section class="card">
+    <div class="ok-head">
+      <span class="st">解密成功</span>
+      <span class="meta">剩余提取次数 0 / 1 · 本标签页可回看</span>
+    </div>
+
+    <div class="pk-label">📦 信息包 · 内容已加密传输，仅在本页解密</div>
+    <div class="pv-box">sk-live-9f3Kx7Qm2Vb8Nc4Td6Ye1Za5Rg7HjW2Lp4Xz…</div>
+    <button class="copy-all">复制全文</button>
+
+    <div class="readonly">
+      <div class="ro-label">消息 · 只读展示，无复制</div>
+      <div class="ro-body">服务器迁移窗口为周六 02:00–04:00，期间 API 不可用。
+请提前通知依赖方，迁移完成后健康检查地址不变。</div>
+    </div>
+
+    <p class="foot">关闭标签页后内容即清除，服务端不保留可解密副本</p>
+  </section>
+</div>
+</body>
+</html>

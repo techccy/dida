@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dida — 聊天页设计稿（/c）</title>
+<style>
+  :root {
+    --d-bg: #0c0e12; --d-surface: #14171d; --d-surface-2: #1a1e26;
+    --d-border: #262b35; --d-border-strong: #333a47;
+    --d-text: #e8eaf0; --d-text-muted: #8a92a3; --d-text-faint: #5c6474;
+    --d-accent: #38d39f; --d-accent-strong: #4ee3b1;
+    --d-accent-dim: rgba(56,211,159,.14); --d-accent-border: rgba(56,211,159,.45);
+    --d-warn: #f5b544;
+    --d-bubble-mine: #1e3a31; --d-bubble-theirs: #1f232c;
+    --d-font-display: "Space Grotesk", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --d-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --d-radius-md: 8px; --d-radius-sm: 6px;
+    --d-max-w: 720px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--d-bg); color: var(--d-text); font-family: var(--d-font-display); font-size: 15px; line-height: 1.55; }
+  .app { max-width: var(--d-max-w); margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+
+  /* 顶栏：状态 + 倒计时 */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--d-border);
+    background: var(--d-surface);
+  }
+  .st { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .st::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--d-accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .st.wait::before { background: var(--d-warn); }
+  .st.wait { color: var(--d-warn); }
+  .ttl { margin-left: auto; font-family: var(--d-font-mono); font-size: 14px; color: var(--d-warn); letter-spacing: .06em; }
+  .sec-badge { font-size: 11px; color: var(--d-text-faint); border: 1px solid var(--d-border); border-radius: 999px; padding: 2px 9px; letter-spacing: .05em; }
+
+  /* 消息流 */
+  .stream { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 6px; }
+  .msg { max-width: 78%; padding: 8px 12px; border-radius: var(--d-radius-md); white-space: pre-wrap; word-break: break-word; font-size: 14.5px; }
+  .msg.mine { margin-left: auto; background: var(--d-bubble-mine); border-bottom-right-radius: 3px; }
+  .msg.theirs { background: var(--d-bubble-theirs); border-bottom-left-radius: 3px; }
+  .msg .ts { display: block; font-size: 11px; opacity: .55; margin-top: 3px; font-family: var(--d-font-mono); }
+  .day-sep { text-align: center; font-size: 12px; color: var(--d-text-faint); margin: 10px 0; }
+
+  /* 信息包气泡：青绿虚线 + 标签 + mono 截断预览 + 复制 */
+  .msg.packet { border: 1px dashed var(--d-accent-border); background: transparent; padding: 10px 12px; }
+  .msg.packet .pk { font-size: 12px; color: var(--d-accent); margin-bottom: 3px; }
+  .msg.packet .pv { font-family: var(--d-font-mono); font-size: 13px; color: var(--d-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .copy-btn { margin-top: 8px; font-size: 12px; padding: 4px 12px; border: 1px solid var(--d-accent-border); color: var(--d-accent); background: var(--d-accent-dim); border-radius: var(--d-radius-sm); cursor: pointer; }
+  .copy-btn:hover { border-color: var(--d-accent); }
+
+  .sys-tip { text-align: center; font-size: 12.5px; color: var(--d-text-faint); padding: 6px 0; }
+
+  /* 吸底输入区 */
+  .composer { padding: 14px 20px 18px; border-top: 1px solid var(--d-border); background: var(--d-surface); }
+  .composer .box { display: flex; gap: 8px; align-items: flex-end; }
+  .composer textarea {
+    flex: 1; font: inherit; resize: none; height: 56px; padding: 11px 14px;
+    border: 1px solid var(--d-border); border-radius: var(--d-radius-sm);
+    background: var(--d-surface-2); color: inherit;
+  }
+  .composer textarea:focus { outline: none; border-color: var(--d-accent-border); }
+  .composer button { padding: 12px 18px; border-radius: var(--d-radius-sm); border: 1px solid var(--d-border); background: transparent; color: var(--d-text); cursor: pointer; font: inherit; }
+  .composer button.primary { background: var(--d-accent); border-color: var(--d-accent); color: #0c0e12; font-weight: 600; }
+  .composer .meta { display: flex; justify-content: space-between; margin-top: 7px; font-size: 12px; color: var(--d-text-faint); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <span class="st">已连接</span>
+    <span class="sec-badge">端到端加密</span>
+    <span class="ttl">剩余 23:41</span>
+  </header>
+
+  <div class="stream">
+    <div class="day-sep">会话开始 · 22:14</div>
+    <div class="msg theirs">你好，在线吗？<span class="ts">22:14</span></div>
+    <div class="msg mine">在的，直接说。<span class="ts">22:15</span></div>
+    <div class="msg theirs">部署配置发我一下<span class="ts">22:15</span></div>
+    <div class="msg packet mine">
+      <div class="pk">📦 信息包</div>
+      <div class="pv">sk-live-9f3Kx7Qm2Vb8Nc4Td6Ye1Za5Rg…</div>
+      <button class="copy-btn">复制全文</button>
+      <span class="ts">22:16</span>
+    </div>
+    <div class="msg theirs">收到 ✅<span class="ts">22:16</span></div>
+    <div class="sys-tip">对方暂时离开 · 60 秒内回来则继续</div>
+  </div>
+
+  <footer class="composer">
+    <div class="box">
+      <textarea placeholder="输入消息（单条上限 8KB）"></textarea>
+      <button>发送</button>
+    </div>
+    <div class="meta">
+      <span>消息关闭标签页即消失</span>
+      <span>Enter 发送 · Shift+Enter 换行</span>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

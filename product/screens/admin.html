@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dida — 管理端设计稿</title>
+<style>
+  :root {
+    --d-bg: #0c0e12; --d-surface: #14171d; --d-surface-2: #1a1e26;
+    --d-border: #262b35; --d-border-strong: #333a47;
+    --d-text: #e8eaf0; --d-text-muted: #8a92a3; --d-text-faint: #5c6474;
+    --d-accent: #38d39f; --d-accent-strong: #4ee3b1;
+    --d-accent-dim: rgba(56,211,159,.14); --d-accent-border: rgba(56,211,159,.45);
+    --d-danger: #e5484d; --d-warn: #f5b544;
+    --d-font-display: "Space Grotesk", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --d-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --d-radius-lg: 12px; --d-radius-md: 8px; --d-radius-sm: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--d-bg); color: var(--d-text); font-family: var(--d-font-display); font-size: 15px; line-height: 1.55; }
+  button { font: inherit; cursor: pointer; border-radius: var(--d-radius-sm); border: 1px solid var(--d-border); background: transparent; color: var(--d-text); padding: 8px 16px; }
+  button.primary { background: var(--d-accent); border-color: var(--d-accent); color: #0c0e12; font-weight: 600; }
+  button.danger { border-color: rgba(229,72,77,.5); color: var(--d-danger); }
+  button:disabled { opacity: .4; cursor: default; }
+  input, select, textarea {
+    font: inherit; padding: 9px 12px; width: 100%;
+    border: 1px solid var(--d-border); border-radius: var(--d-radius-sm);
+    background: var(--d-surface-2); color: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--d-accent-border); }
+
+  .app { display: flex; min-height: 100vh; }
+
+  /* 侧栏 */
+  .side {
+    width: 208px; border-right: 1px solid var(--d-border);
+    padding: 20px 14px; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
+  }
+  .wordmark { font-size: 19px; font-weight: 700; letter-spacing: .04em; padding: 0 10px 18px; }
+  .wordmark em { color: var(--d-accent); font-style: normal; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    border-radius: var(--d-radius-sm); color: var(--d-text-muted);
+    cursor: pointer; font-size: 14px;
+  }
+  .nav-item:hover { background: var(--d-surface); color: var(--d-text); }
+  .nav-item.on { background: var(--d-accent-dim); color: var(--d-accent); font-weight: 600; }
+  .nav-item .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .side-foot { margin-top: auto; padding: 0 10px; font-size: 12px; color: var(--d-text-faint); }
+
+  /* 内容区 */
+  .main { flex: 1; padding: 28px 32px; max-width: 980px; }
+  .main h1 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1.25fr; gap: 16px; align-items: start; }
+  .card {
+    background: var(--d-surface); border: 1px solid var(--d-border);
+    border-radius: var(--d-radius-lg); padding: 20px;
+  }
+  .card h2 { font-size: 14px; font-weight: 600; color: var(--d-text-muted); margin-bottom: 14px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 13px; color: var(--d-text-muted); margin-bottom: 6px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .wm-opts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .wm-opts label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--d-text-muted); cursor: pointer; }
+  .wm-opts input { width: auto; }
+
+  /* 活跃会话卡 */
+  .live-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .live-head .st { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--d-accent); }
+  .live-head .st::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--d-accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .ttl { margin-left: auto; font-family: var(--d-font-mono); font-size: 14px; color: var(--d-warn); }
+  .code-show {
+    display: flex; align-items: center; gap: 12px; background: var(--d-surface-2);
+    border: 1px solid var(--d-border-strong); border-radius: var(--d-radius-md);
+    padding: 12px 16px; margin-bottom: 14px;
+  }
+  .code-show .code { font-family: var(--d-font-mono); font-size: 22px; letter-spacing: .14em; color: var(--d-accent); user-select: all; }
+  .code-show small { color: var(--d-text-faint); font-size: 12px; }
+  .mini-chat {
+    border: 1px solid var(--d-border); border-radius: var(--d-radius-md);
+    background: var(--d-bg); height: 220px; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; overflow: hidden;
+  }
+  .msg { max-width: 76%; padding: 6px 11px; border-radius: var(--d-radius-md); font-size: 14px; white-space: pre-wrap; }
+  .msg.mine { margin-left: auto; background: #1e3a31; }
+  .msg.theirs { background: #1f232c; }
+  .msg.packet { border: 1px dashed var(--d-accent-border); background: transparent; }
+  .msg.packet .pk { font-size: 12px; color: var(--d-accent); }
+  .msg.packet .pv { font-family: var(--d-font-mono); font-size: 13px; color: var(--d-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .composer { display: flex; gap: 8px; }
+  .composer textarea { height: 56px; resize: none; flex: 1; }
+  .composer .wide { white-space: nowrap; }
+
+  /* 列表 */
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--d-border); font-size: 13px; }
+  th { color: var(--d-text-faint); font-weight: 500; }
+  td.mono { font-family: var(--d-font-mono); }
+  .pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--d-border); color: var(--d-text-muted); }
+  .pill.ok { border-color: var(--d-accent-border); color: var(--d-accent); background: var(--d-accent-dim); }
+  .pill.warn { border-color: rgba(245,181,68,.4); color: var(--d-warn); }
+  .login-note { margin-top: 18px; font-size: 13px; color: var(--d-text-faint); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="wordmark">did<em>a</em></div>
+    <div class="nav-item on"><span class="dot"></span>会话</div>
+    <div class="nav-item"><span class="dot"></span>提取包</div>
+    <div class="side-foot">admin · 8h 内有效</div>
+  </aside>
+
+  <main class="main">
+    <h1>会话</h1>
+    <div class="grid">
+      <section class="card">
+        <h2>创建会话</h2>
+        <div class="field">
+          <label>有效期（自对方加入起算）</label>
+          <select><option>15 分钟</option><option>1 小时</option><option>6 小时</option><option selected>24 小时</option><option>7 天</option></select>
+        </div>
+        <div class="field">
+          <label>自定义对话码（留空随机生成）</label>
+          <input placeholder="C-XXXXXXXX" class="mono-slot" style="font-family:var(--d-font-mono); letter-spacing:.1em;">
+        </div>
+        <div class="field">
+          <label>对方页水印</label>
+          <div class="wm-opts">
+            <label><input type="checkbox">自定义内容</label>
+            <label><input type="checkbox" checked>IP</label>
+            <label><input type="checkbox">设备</label>
+            <label><input type="checkbox" checked>时间</label>
+          </div>
+        </div>
+        <button class="primary" style="width:100%;">创建会话</button>
+      </section>
+
+      <section class="card">
+        <div class="live-head">
+          <span class="st">已连接</span>
+          <span class="ttl">剩余 23:41</span>
+        </div>
+        <div class="code-show">
+          <span class="code">C-K7M3V9QH</span>
+          <small>只显示一次 · 复制发给对方</small>
+        </div>
+        <div class="mini-chat">
+          <div class="msg theirs">收到，我这边准备好了。</div>
+          <div class="msg mine">好，稍等发你。</div>
+          <div class="msg packet mine">
+            <div class="pk">📦 信息包</div>
+            <div class="pv">sk-live-9f3Kx7Qm2Vb8Nc4Td6Ye1Za5Rg…</div>
+          </div>
+        </div>
+        <div class="composer">
+          <textarea placeholder="输入消息"></textarea>
+          <button class="wide">打包发送</button>
+          <button class="primary wide">发送</button>
+        </div>
+        <button class="danger" style="margin-top:12px; width:100%;">提前结束会话</button>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px;">
+      <h2>会话列表</h2>
+      <table>
+        <tr><th>对话码</th><th>状态</th><th>剩余时间</th><th></th></tr>
+        <tr><td class="mono">C-K7M3V9QH</td><td><span class="pill ok">active</span></td><td class="mono">23:41</td><td><button style="padding:4px 10px; font-size:12px;">进入</button></td></tr>
+        <tr><td class="mono">C-2T9WD4HN</td><td><span class="pill warn">等待加入</span></td><td class="mono">6 天 22 小时</td><td><button class="danger" style="padding:4px 10px; font-size:12px;">作废</button></td></tr>
+      </table>
+    </section>
+    <p class="login-note">消息端到端加密，服务端不存储任何消息内容；会话结束时全部痕迹清除。</p>
+  </main>
+</div>
+</body>
+</html>

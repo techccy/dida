@@ -286,31 +286,52 @@ export default function ChatView({
     return parts.join(" · ");
   }, [role, wm, code]);
 
-  return (
-    <div className="chat-wrap">
-      <div className="status-line">
-        {statusText}
-        {remainText ? ` · 剩余 ${remainText}` : ""}
-        {lostTotal > 0 ? ` · 断线期间丢失约 ${lostTotal} 条` : ""}
-        {peerLeft && state === "ready" ? " · 对方暂时离开" : ""}
-      </div>
+  const stClass =
+    state === "ready"
+      ? "ok"
+      : state === "waiting-peer" || state === "connecting"
+        ? "wait"
+        : state === "error"
+          ? "err"
+          : "";
 
-      <div className="messages" ref={messagesRef}>
+  // 剩余时间 < 10 分钟转警示色（§5.7 视觉层，不影响协议行为）
+  const ttlUrgent = remain !== null && remain < 600_000;
+
+  return (
+    <div className="chat-app">
+      <header className="chat-topbar">
+        <span className={"st " + stClass}>{statusText}</span>
+        {state !== "ended" && <span className="sec-badge">端到端加密</span>}
+        {remainText && (
+          <span className={"chat-ttl" + (ttlUrgent ? " urgent" : "")}>
+            剩余 {remainText}
+          </span>
+        )}
+      </header>
+
+      <div className="stream" ref={messagesRef}>
+        {lostTotal > 0 && (
+          <div className="sys-tip">断线期间丢失约 {lostTotal} 条消息</div>
+        )}
+        {peerLeft && state === "ready" && (
+          <div className="sys-tip">对方暂时离开 · 60 秒内回来则继续</div>
+        )}
         {messages.length === 0 && (
-          <div className="muted" style={{ padding: 8 }}>
+          <div className="sys-tip">
             {state === "ready" ? "开始对话。" : "等待连接…"}
           </div>
         )}
         {messages.map((m, i) =>
           m.packet ? (
             <div key={i} className={`msg packet ${m.mine ? "mine" : "theirs"}`}>
-              <div className="packet-head">📦 信息包</div>
-              <div className="packet-preview">{packetPreview(m.text)}</div>
+              <div className="pk">📦 信息包</div>
+              <div className="pv">{packetPreview(m.text)}</div>
               <button
                 className="copy-btn"
                 onClick={() => copyMsg(i, m.text)}
               >
-                {copiedIdx === i ? "已复制" : "复制"}
+                {copiedIdx === i ? "已复制" : "复制全文"}
               </button>
               <span className="ts">
                 {new Date(m.ts).toLocaleTimeString("zh-CN", {
@@ -334,35 +355,45 @@ export default function ChatView({
       </div>
 
       {state === "ended" && (
-        <div className="banner">{END_TEXT[stateDetail ?? ""] ?? "会话已终止"}</div>
+        <div className="banner" style={{ margin: "0 20px 14px" }}>
+          {END_TEXT[stateDetail ?? ""] ?? "会话已终止"}
+        </div>
       )}
 
       {state !== "ended" && (
         <div className="composer">
-          <textarea
-            value={input}
-            placeholder="输入消息…"
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-          />
-          {role === "admin" && (
-            <button onClick={() => void send(true)} disabled={!input.trim()}>
-              打包发送
+          <div className="box">
+            <textarea
+              value={input}
+              placeholder="输入消息…"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            {role === "admin" && (
+              <button onClick={() => void send(true)} disabled={!input.trim()}>
+                打包发送
+              </button>
+            )}
+            <button className="primary" onClick={() => void send()}>
+              发送
             </button>
-          )}
-          <button className="primary" onClick={() => void send()}>
-            发送
-          </button>
+          </div>
+          <div className="meta">
+            <span>消息端到端加密，服务端不留存</span>
+            <span>Enter 发送 · Shift+Enter 换行</span>
+          </div>
         </div>
       )}
-      {tooLong && <div className="banner">单条消息超过 8KB 上限，未发送</div>}
+      {tooLong && <div className="banner" style={{ margin: "10px 20px 0" }}>单条消息超过 8KB 上限，未发送</div>}
       {stateDetail && state === "error" && (
-        <div className="banner">连接错误：{stateDetail}</div>
+        <div className="banner" style={{ margin: "10px 20px 0" }}>
+          连接错误：{stateDetail}
+        </div>
       )}
       {wmText && <Watermark text={wmText} />}
     </div>

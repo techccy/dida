@@ -78,8 +78,8 @@ function WmEditor({
   onChange: (d: WmDraft) => void;
 }) {
   return (
-    <details style={{ marginTop: 6 }}>
-      <summary className="muted" style={{ cursor: "pointer" }}>
+    <details className="wm" style={{ marginTop: 6 }}>
+      <summary>
         水印（可选）：在对方页面上全屏斜向平铺显示
       </summary>
       <div className="wm-opts" style={{ marginTop: 8 }}>
@@ -176,6 +176,8 @@ export default function Admin() {
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [endedReason, setEndedReason] = useState<string | null>(null);
+  /** 分区导航：会话 / 提取包（UI 层，不影响协议行为） */
+  const [tab, setTab] = useState<"sessions" | "extracts">("sessions");
 
   // ---------- 提取包（§5.6） ----------
   const [extracts, setExtracts] = useState<ExtractInfo[]>([]);
@@ -389,28 +391,34 @@ export default function Admin() {
 
   if (!authed) {
     return (
-      <div className="card">
-        <div className="muted">管理员登录</div>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => {
-            setPassword(e.target.value);
-            setLoginErr(null);
-          }}
-          onKeyDown={(e) => e.key === "Enter" && void doLogin()}
-          placeholder="管理员口令"
-          autoFocus
-        />
-        {loginErr && <div className="banner">{loginErr}</div>}
-        <button
-          className="primary"
-          onClick={() => void doLogin()}
-          disabled={loginBusy}
-          style={{ marginTop: 10 }}
-        >
-          {loginBusy ? "登录中…" : "登录"}
-        </button>
+      <div className="admin-login">
+        <div className="card">
+          <h1>
+            did<em>a</em> · 管理端
+          </h1>
+          <div className="field">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setLoginErr(null);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && void doLogin()}
+              placeholder="管理员口令"
+              autoFocus
+            />
+          </div>
+          {loginErr && <div className="banner">{loginErr}</div>}
+          <button
+            className="primary"
+            onClick={() => void doLogin()}
+            disabled={loginBusy}
+            style={{ width: "100%" }}
+          >
+            {loginBusy ? "登录中…" : "登录"}
+          </button>
+        </div>
       </div>
     );
   }
@@ -418,283 +426,386 @@ export default function Admin() {
   const openSession = sessions.find((s) => s.sessionId === openId);
 
   return (
-    <div className="card" style={{ marginTop: 24, marginBottom: 24 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <strong>会话管理</strong>
-        <button onClick={logout}>退出登录</button>
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-        <select
-          value={ttlMs}
-          onChange={(e) => setTtlMs(Number(e.target.value))}
-          style={{ width: "auto" }}
-        >
-          {TTL_OPTIONS.map((o) => (
-            <option key={o.ms} value={o.ms}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <input
-          value={customChatCode}
-          onChange={(e) => setCustomChatCode(e.target.value)}
-          placeholder="自定义对话码（可选，C-XXXXXXXX）"
-          style={{ width: 260 }}
-          spellCheck={false}
-          autoCapitalize="characters"
-        />
+    <div className="shell">
+      <aside className="side">
+        <div className="wordmark">
+          did<em>a</em>
+        </div>
         <button
-          className="primary"
-          onClick={() => void create()}
-          disabled={creating}
+          className={"nav-item" + (tab === "sessions" ? " on" : "")}
+          onClick={() => setTab("sessions")}
         >
-          {creating ? "创建中…" : "创建会话"}
+          <span className="dot" />
+          会话
         </button>
-      </div>
-      <div className="muted" style={{ marginTop: 6 }}>
-        会话时长从对方加入时起算；未使用的码 7 天后自动作废。自定义码留空则随机生成；弱码会降低防猜测强度。
-      </div>
-
-      <WmEditor draft={chatWm} onChange={setChatWm} />
-
-      {newCode && (
-        <div style={{ margin: "12px 0", border: "1px solid #27ae60", borderRadius: 8, padding: 12 }}>
-          <div className="muted">新邀请码（仅此一次，请复制后通过独立渠道发给对方）</div>
-          <div className="code" style={{ margin: "6px 0" }}>{newCode}</div>
-          <button onClick={copy}>{copied ? "已复制" : "复制"}</button>
-        </div>
-      )}
-
-      {apiErr && <div className="banner">{apiErr}</div>}
-
-      {endedReason && <div className="banner">{endedReason}</div>}
-
-      <table>
-        <thead>
-          <tr>
-            <th>状态</th>
-            <th>剩余时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sessions.length === 0 && (
-            <tr>
-              <td colSpan={3} className="muted">
-                暂无会话
-              </td>
-            </tr>
-          )}
-          {sessions.map((s) => (
-            <tr key={s.sessionId}>
-              <td>{STATUS_TEXT[s.status]}</td>
-              <td>
-                {s.status === "active" && s.deadline
-                  ? fmtRemain(s.deadline, now)
-                  : "—"}
-              </td>
-              <td>
-                {s.status === "active" && (
-                  <>
-                    <button
-                      className="ok"
-                      onClick={() => {
-                        setEndedReason(null);
-                        setOpenId(s.sessionId);
-                      }}
-                    >
-                      进入
-                    </button>
-                    <button
-                      className="danger"
-                      style={{ marginLeft: 6 }}
-                      onClick={() => {
-                        if (window.confirm("确定结束该会话？将清除全部数据。"))
-                          void doEnd(s.sessionId);
-                      }}
-                    >
-                      提前结束
-                    </button>
-                  </>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {/* ---------- 提取包（§5.6） ---------- */}
-      <div
-        style={{
-          borderTop: "1px solid #d6d9de",
-          marginTop: 20,
-          paddingTop: 14,
-        }}
-      >
-        <strong>提取包</strong>
-        <div className="muted" style={{ marginTop: 4 }}>
-          键入内容生成提取码，对方凭码在本站主页提取；到期或次数用尽即销毁。
-        </div>
-
-        <textarea
-          value={extractContent}
-          onChange={(e) => {
-            setExtractContent(e.target.value);
-            setExtractErr(null);
-          }}
-          placeholder="输入要交付的内容（密钥、配置、文本…，上限 32KB）"
-          rows={4}
-          style={{ marginTop: 10, resize: "vertical" }}
-        />
-        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-          <select
-            value={extractStyle}
-            onChange={(e) => setExtractStyle(e.target.value as "packet" | "message")}
-            style={{ width: "auto" }}
-          >
-            <option value="packet">信息包（截断+复制）</option>
-            <option value="message">消息（只读展示）</option>
-          </select>
-          <select
-            value={extractTtlMs}
-            onChange={(e) => setExtractTtlMs(Number(e.target.value))}
-            style={{ width: "auto" }}
-          >
-            {TTL_OPTIONS.map((o) => (
-              <option key={o.ms} value={o.ms}>
-                有效期 {o.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={extractCount}
-            onChange={(e) => setExtractCount(Number(e.target.value))}
-            style={{ width: "auto" }}
-          >
-            {Array.from({ length: EXTRACT_MAX_COUNT }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                可提取 {n} 次
-              </option>
-            ))}
-          </select>
-        </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <input
-            value={customExtractCode}
-            onChange={(e) => setCustomExtractCode(e.target.value)}
-            placeholder="自定义提取码（可选，E-XXXXXXXX）"
-            style={{ width: 260 }}
-            spellCheck={false}
-            autoCapitalize="characters"
-          />
-          <button
-            className="primary"
-            onClick={() => void createExtractPkg()}
-            disabled={extractBusy || !extractContent.trim()}
-          >
-            {extractBusy ? "生成中…" : "生成提取码"}
-          </button>
-        </div>
-        <div className="muted" style={{ marginTop: 6 }}>
-          自定义码留空则随机生成。提取码密钥由码派生，弱码会显著降低抗离线枚举强度，敏感内容建议用随机码。
-        </div>
-
-        <WmEditor draft={extractWm} onChange={setExtractWm} />
-        {extractErr && <div className="banner">{extractErr}</div>}
-
-        {newExtractCode && (
-          <div
-            style={{
-              margin: "12px 0",
-              border: "1px solid #27ae60",
-              borderRadius: 8,
-              padding: 12,
-            }}
-          >
-            <div className="muted">新提取码（仅此一次，请复制后通过独立渠道发给对方）</div>
-            <div className="code" style={{ margin: "6px 0" }}>{newExtractCode}</div>
-            <button onClick={copyNewExtractCode}>
-              {newExtractCopied ? "已复制" : "复制"}
+        <button
+          className={"nav-item" + (tab === "extracts" ? " on" : "")}
+          onClick={() => setTab("extracts")}
+        >
+          <span className="dot" />
+          提取包
+        </button>
+        <div className="side-foot">
+          admin · token 8h 内有效
+          <div style={{ marginTop: 6 }}>
+            <button className="sm" onClick={logout}>
+              退出登录
             </button>
           </div>
-        )}
+        </div>
+      </aside>
 
-        <table>
-          <thead>
-            <tr>
-              <th>状态</th>
-              <th>剩余时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {extracts.length === 0 && (
-              <tr>
-                <td colSpan={3} className="muted">
-                  暂无提取包
-                </td>
-              </tr>
-            )}
-            {extracts.map((e) => (
-              <tr key={e.extractId}>
-                <td>
-                  {e.status === "destroyed"
-                    ? "已销毁"
-                    : e.usedCount > 0
-                      ? `已提取 ${e.usedCount}/${e.maxCount}`
-                      : "待提取"}
-                </td>
-                <td>
-                  {e.status === "ready" ? fmtRemain(e.expiresAt, now) : "—"}
-                </td>
-                <td>
-                  {e.status === "ready" && (
+      <main className="content">
+        {tab === "sessions" && (
+          <>
+            <h1>会话</h1>
+            {endedReason && <div className="banner warn">{endedReason}</div>}
+            <div className="grid2">
+              <section className="panel">
+                <h2>创建会话</h2>
+                <div className="field">
+                  <label>有效期（自对方加入起算）</label>
+                  <select
+                    value={ttlMs}
+                    onChange={(e) => setTtlMs(Number(e.target.value))}
+                  >
+                    {TTL_OPTIONS.map((o) => (
+                      <option key={o.ms} value={o.ms}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>自定义对话码（留空随机生成）</label>
+                  <input
+                    value={customChatCode}
+                    onChange={(e) => setCustomChatCode(e.target.value)}
+                    placeholder="C-XXXXXXXX"
+                    className="mono"
+                    style={{ letterSpacing: "0.1em" }}
+                    spellCheck={false}
+                    autoCapitalize="characters"
+                  />
+                </div>
+                <div className="field">
+                  <WmEditor draft={chatWm} onChange={setChatWm} />
+                </div>
+                <button
+                  className="primary"
+                  onClick={() => void create()}
+                  disabled={creating}
+                  style={{ width: "100%" }}
+                >
+                  {creating ? "创建中…" : "创建会话"}
+                </button>
+                <div className="muted" style={{ marginTop: 10 }}>
+                  未使用的码 7 天后自动作废；自定义码留空则随机生成，弱码会降低防猜测强度。
+                </div>
+                {apiErr && <div className="banner" style={{ marginTop: 12 }}>{apiErr}</div>}
+              </section>
+
+              <section className="panel">
+                {openSession ? (
+                  <div className="chat-host">
+                    <ChatView
+                      role="admin"
+                      credential={loadAdminToken() ?? undefined}
+                      sessionId={openSession.sessionId}
+                      onEnded={(reason) => {
+                        setEndedReason(
+                          reason === "admin-end"
+                            ? "你已结束该会话"
+                            : reason === "ttl"
+                              ? "会话已到期并清除"
+                              : reason === "key-loss"
+                                ? "密钥变化，会话已终止并清除"
+                                : "对方长时间未返回，会话已终止并清除",
+                        );
+                        setOpenId(null);
+                        void refresh();
+                      }}
+                    />
                     <button
                       className="danger"
+                      style={{ marginTop: 12, width: "100%" }}
                       onClick={() => {
-                        if (window.confirm("确定销毁该提取包？内容将不可再提取。"))
-                          void doDestroyExtract(e.extractId);
+                        if (window.confirm("确定结束该会话？将清除全部数据。"))
+                          void doEnd(openSession.sessionId);
                       }}
                     >
-                      提前销毁
+                      提前结束会话
                     </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                ) : newCode ? (
+                  <>
+                    <h2>新邀请码</h2>
+                    <div className="code-show">
+                      <span className="code">{newCode}</span>
+                      <small>仅此一次 · 复制后通过独立渠道发给对方</small>
+                    </div>
+                    <button onClick={copy}>
+                      {copied ? "已复制" : "复制"}
+                    </button>
+                  </>
+                ) : (
+                  <h2>无进行中的会话视图 · 创建会话后从列表「进入」</h2>
+                )}
+              </section>
+            </div>
 
-      {openSession && (
-        <div style={{ marginTop: 16 }}>
-          <ChatView
-            role="admin"
-            credential={loadAdminToken() ?? undefined}
-            sessionId={openSession.sessionId}
-            onEnded={(reason) => {
-              setEndedReason(
-                reason === "admin-end"
-                  ? "你已结束该会话"
-                  : reason === "ttl"
-                    ? "会话已到期并清除"
-                    : reason === "key-loss"
-                      ? "密钥变化，会话已终止并清除"
-                      : "对方长时间未返回，会话已终止并清除",
-              );
-              setOpenId(null);
-              void refresh();
-            }}
-          />
-        </div>
-      )}
+            <section className="panel" style={{ marginTop: 16 }}>
+              <h2>会话列表</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>状态</th>
+                    <th>剩余时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="muted">
+                        暂无会话
+                      </td>
+                    </tr>
+                  )}
+                  {sessions.map((s) => (
+                    <tr key={s.sessionId}>
+                      <td>
+                        <span
+                          className={
+                            "pill" +
+                            (s.status === "active"
+                              ? " ok"
+                              : s.status === "created"
+                                ? " warn"
+                                : "")
+                          }
+                        >
+                          {STATUS_TEXT[s.status]}
+                        </span>
+                      </td>
+                      <td className="mono-cell">
+                        {s.status === "active" && s.deadline
+                          ? fmtRemain(s.deadline, now)
+                          : "—"}
+                      </td>
+                      <td>
+                        {s.status === "active" && (
+                          <>
+                            <button
+                              className="ok sm"
+                              onClick={() => {
+                                setEndedReason(null);
+                                setOpenId(s.sessionId);
+                              }}
+                            >
+                              进入
+                            </button>{" "}
+                            <button
+                              className="danger sm"
+                              onClick={() => {
+                                if (
+                                  window.confirm("确定结束该会话？将清除全部数据。")
+                                )
+                                  void doEnd(s.sessionId);
+                              }}
+                            >
+                              提前结束
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="muted">
+                消息端到端加密，服务端不存储任何消息内容；会话结束时全部痕迹清除。
+              </div>
+            </section>
+          </>
+        )}
+
+        {tab === "extracts" && (
+          <>
+            <h1>提取包</h1>
+            <div className="grid2">
+              <section className="panel">
+                <h2>创建提取包</h2>
+                <div className="field">
+                  <textarea
+                    value={extractContent}
+                    onChange={(e) => {
+                      setExtractContent(e.target.value);
+                      setExtractErr(null);
+                    }}
+                    placeholder="输入要交付的内容（密钥、配置、文本…，上限 32KB）"
+                    rows={5}
+                  />
+                </div>
+                <div className="field">
+                  <label>呈现样式</label>
+                  <select
+                    value={extractStyle}
+                    onChange={(e) =>
+                      setExtractStyle(e.target.value as "packet" | "message")
+                    }
+                  >
+                    <option value="packet">信息包（截断+复制）</option>
+                    <option value="message">消息（只读展示）</option>
+                  </select>
+                </div>
+                <div className="field row2">
+                  <div>
+                    <label>有效期</label>
+                    <select
+                      value={extractTtlMs}
+                      onChange={(e) => setExtractTtlMs(Number(e.target.value))}
+                    >
+                      {TTL_OPTIONS.map((o) => (
+                        <option key={o.ms} value={o.ms}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label>可提取次数</label>
+                    <select
+                      value={extractCount}
+                      onChange={(e) => setExtractCount(Number(e.target.value))}
+                    >
+                      {Array.from({ length: EXTRACT_MAX_COUNT }, (_, i) => i + 1).map(
+                        (n) => (
+                          <option key={n} value={n}>
+                            {n} 次
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </div>
+                </div>
+                <div className="field">
+                  <label>自定义提取码（留空随机生成）</label>
+                  <input
+                    value={customExtractCode}
+                    onChange={(e) => setCustomExtractCode(e.target.value)}
+                    placeholder="E-XXXXXXXX"
+                    className="mono"
+                    style={{ letterSpacing: "0.1em" }}
+                    spellCheck={false}
+                    autoCapitalize="characters"
+                  />
+                </div>
+                <div className="field">
+                  <WmEditor draft={extractWm} onChange={setExtractWm} />
+                </div>
+                <button
+                  className="primary"
+                  onClick={() => void createExtractPkg()}
+                  disabled={extractBusy || !extractContent.trim()}
+                  style={{ width: "100%" }}
+                >
+                  {extractBusy ? "生成中…" : "生成提取码"}
+                </button>
+                <div className="muted" style={{ marginTop: 10 }}>
+                  提取码密钥由码派生，弱码会显著降低抗离线枚举强度，敏感内容建议用随机码。
+                </div>
+                {extractErr && (
+                  <div className="banner" style={{ marginTop: 12 }}>
+                    {extractErr}
+                  </div>
+                )}
+              </section>
+
+              <section className="panel">
+                {newExtractCode ? (
+                  <>
+                    <h2>新提取码</h2>
+                    <div className="code-show">
+                      <span className="code">{newExtractCode}</span>
+                      <small>仅此一次 · 复制后通过独立渠道发给对方</small>
+                    </div>
+                    <button onClick={copyNewExtractCode}>
+                      {newExtractCopied ? "已复制" : "复制"}
+                    </button>
+                  </>
+                ) : (
+                  <h2>对方凭码在本站主页提取；到期或次数用尽即销毁。</h2>
+                )}
+              </section>
+            </div>
+
+            <section className="panel" style={{ marginTop: 16 }}>
+              <h2>提取包列表</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>状态</th>
+                    <th>剩余时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {extracts.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="muted">
+                        暂无提取包
+                      </td>
+                    </tr>
+                  )}
+                  {extracts.map((e) => (
+                    <tr key={e.extractId}>
+                      <td>
+                        <span
+                          className={
+                            "pill" +
+                            (e.status === "ready"
+                              ? " ok"
+                              : e.status === "destroyed"
+                                ? ""
+                                : " warn")
+                          }
+                        >
+                          {e.status === "destroyed"
+                            ? "已销毁"
+                            : e.usedCount > 0
+                              ? `已提取 ${e.usedCount}/${e.maxCount}`
+                              : "待提取"}
+                        </span>
+                      </td>
+                      <td className="mono-cell">
+                        {e.status === "ready" ? fmtRemain(e.expiresAt, now) : "—"}
+                      </td>
+                      <td>
+                        {e.status === "ready" && (
+                          <button
+                            className="danger sm"
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  "确定销毁该提取包？内容将不可再提取。",
+                                )
+                              )
+                                void doDestroyExtract(e.extractId);
+                            }}
+                          >
+                            提前销毁
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          </>
+        )}
+      </main>
     </div>
   );
 }

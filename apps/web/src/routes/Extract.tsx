@@ -127,55 +127,79 @@ export default function Extract() {
 
   if (busy) {
     return (
-      <div className="card extract-page">
-        <div className="muted">提取中…</div>
+      <div className="extract-screen">
+        <div className="wrap extract-page">
+          <div className="card" style={{ margin: 0 }}>
+            <div className="muted">提取中…</div>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (err || !cache) {
     return (
-      <div className="card extract-page">
-        <div className="banner">{err ?? "提取失败"}</div>
-        <button className="primary" onClick={leave}>
-          返回
-        </button>
+      <div className="extract-screen">
+        <div className="wrap extract-page">
+          <div className="card" style={{ margin: 0 }}>
+            <div className="redeem">
+              <h1>提取失败</h1>
+              <div className="err">{err ?? "提取码无效或已失效"}</div>
+            </div>
+            <button
+              className="primary"
+              onClick={leave}
+              style={{ marginTop: 18, width: "100%" }}
+            >
+              返回
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="card extract-page">
-      <div className="muted">提取内容</div>
-
-      {cache.style === "packet" ? (
-        <div className="extract-packet">
-          <div className="packet-head">📦 信息包</div>
-          <div className="packet-preview">{packetPreview(cache.text)}</div>
-          <button className="copy-btn" onClick={copy}>
-            {copied ? "已复制" : "复制"}
-          </button>
-        </div>
-      ) : (
-        <div className="extract-message">
-          <div className="packet-head">🔒 保密内容</div>
-          <div className="extract-plain">{cache.text}</div>
-          <div className="muted" style={{ marginTop: 6 }}>
-            此内容仅供查看，不提供复制。
+    <div className="extract-screen">
+      <div className="wrap extract-page">
+        <div className="card" style={{ margin: 0 }}>
+          <div className="result-head">
+            <span className="st">解密成功</span>
+            <span className="meta">
+              {cache.remaining > 0
+                ? `剩余提取次数 ${cache.remaining}`
+                : "次数已用尽 · 本标签页可回看"}
+            </span>
           </div>
+
+          {cache.style === "packet" ? (
+            <>
+              <div className="pk-label">📦 信息包 · 内容已加密传输，仅在本页解密</div>
+              <div className="pv-box">{packetPreview(cache.text)}</div>
+              <button className="primary copy-all" onClick={copy}>
+                {copied ? "已复制" : "复制全文"}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="pk-label">🔒 保密内容 · 只读展示，不提供复制</div>
+              <div className="ro-body">{cache.text}</div>
+            </>
+          )}
+
+          <div className="status-line" style={{ marginTop: 16 }}>
+            有效期至 {new Date(cache.expiresAt).toLocaleString("zh-CN")}
+          </div>
+          <div className="muted">
+            刷新本页可回看；关闭标签页后内容不可再恢复，服务端不保留可解密副本。
+          </div>
+
+          <button style={{ marginTop: 14 }} onClick={leave}>
+            完成（清除本页内容）
+          </button>
+          {wmText && <Watermark text={wmText} />}
         </div>
-      )}
-
-      <div className="status-line">
-        {cache.remaining > 0 ? `剩余 ${cache.remaining} 次提取机会 · ` : ""}
-        有效期至 {new Date(cache.expiresAt).toLocaleString("zh-CN")}
       </div>
-      <div className="muted">刷新本页可回看；关闭标签页后内容不可再恢复。</div>
-
-      <button style={{ marginTop: 12 }} onClick={leave}>
-        完成（清除本页内容）
-      </button>
-      {wmText && <Watermark text={wmText} />}
     </div>
   );
 }

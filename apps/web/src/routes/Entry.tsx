@@ -85,11 +85,21 @@ export default function Entry() {
   };
 
   return (
-    <div className="card">
-      <div className="muted">输入配对码</div>
-      <div className="entry-row">
+    <div className="entry-screen">
+      {/* 微氛围：暗角光晕 + 极淡噪点，不承载信息 */}
+      <div className="entry-atmos glow" aria-hidden="true" />
+      <svg className="entry-atmos noise" aria-hidden="true" width="160" height="160">
+        <filter id="entry-noise">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" />
+        </filter>
+        <rect width="160" height="160" filter="url(#entry-noise)" opacity="0.6" />
+      </svg>
+
+      <main className="entry">
+        <div className="entry-mark">· · ·</div>
+        <p className="entry-hint">输入配对码</p>
         <div
-          className="code-boxes"
+          className="entry-row"
           onClick={() => inputRef.current?.focus()}
           role="textbox"
           aria-label="配对码输入"
@@ -100,6 +110,7 @@ export default function Entry() {
               <div
                 className={
                   "code-box" +
+                  (code[i] !== undefined ? " filled" : "") +
                   (focused && i === code.length && code.length < TOTAL_LEN
                     ? " active"
                     : "") +
@@ -142,12 +153,15 @@ export default function Entry() {
             aria-label="配对码"
           />
         </div>
-        <button onClick={() => void paste()}>粘贴</button>
-      </div>
-      {err && <div className="banner">{err}</div>}
-      <button className="primary" onClick={join}>
-        加入
-      </button>
+        {err && <div className="entry-error">{err}</div>}
+        <div className="entry-actions">
+          <button onClick={() => void paste()}>粘贴</button>
+          <button className="primary" onClick={join} disabled={code.length < TOTAL_LEN}>
+            加入
+          </button>
+        </div>
+        <p className="entry-foot">C 对话 · E 提取</p>
+      </main>
     </div>
   );
 }
