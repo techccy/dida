@@ -180,6 +180,7 @@ export default function Admin() {
   const [creating, setCreating] = useState(false);
   const [newCode, setNewCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   // 自定义对话码【决策 2026-10-24：全局允许自定义配对码】：留空 = 随机生成
   const [customChatCode, setCustomChatCode] = useState("");
   // 会话水印草稿（§5.7）：创建成功后存 sessionStorage，进入聊天随 E2EE 下发
@@ -207,6 +208,7 @@ export default function Admin() {
   const [extractErr, setExtractErr] = useState<string | null>(null);
   const [newExtractCode, setNewExtractCode] = useState<string | null>(null);
   const [newExtractCopied, setNewExtractCopied] = useState(false);
+  const [newExtractLinkCopied, setNewExtractLinkCopied] = useState(false);
   // 自定义提取码【决策 2026-10-24】：留空 = 随机生成；仍纯前端生成，码明文不经服务端
   const [customExtractCode, setCustomExtractCode] = useState("");
   // 提取包水印草稿（§5.7）：配置嵌入加密明文信封，服务端不可见
@@ -327,6 +329,7 @@ export default function Admin() {
       saveChatWmConfig(created.sessionId, draftToWmConfig(chatWm));
       setNewCode(created.code);
       setCopied(false);
+      setLinkCopied(false);
       setCustomChatCode("");
       await refresh();
     } catch (e) {
@@ -343,6 +346,19 @@ export default function Admin() {
   const copy = () => {
     if (!newCode) return;
     void navigator.clipboard.writeText(newCode).then(() => setCopied(true));
+  };
+
+  // ---------- 分享链接【决策 2026-11-21，§8 链接填码】 ----------
+  // 链接 = origin + base 路径 + "#" + 码（含展示连字符，主页读入归一化剥离）；
+  // fragment 不发往服务端，预览机器人/日志/Referer 均不可见；码本身即完整凭证。
+  const shareLink = (code: string) => {
+    const base = (import.meta.env.VITE_BASE ?? "/").replace(/\/+$/, "");
+    return window.location.origin + base + "/#" + formatCode(code);
+  };
+
+  const copyLink = () => {
+    if (!newCode) return;
+    void navigator.clipboard.writeText(shareLink(newCode)).then(() => setLinkCopied(true));
   };
 
   const doEnd = async (id: string) => {
@@ -403,6 +419,7 @@ export default function Admin() {
       });
       setNewExtractCode(formatCode(code));
       setNewExtractCopied(false);
+      setNewExtractLinkCopied(false);
       setExtractContent("");
       setCustomExtractCode("");
       await refresh();
@@ -418,6 +435,13 @@ export default function Admin() {
   const copyNewExtractCode = () => {
     if (!newExtractCode) return;
     void navigator.clipboard.writeText(newExtractCode).then(() => setNewExtractCopied(true));
+  };
+
+  const copyNewExtractLink = () => {
+    if (!newExtractCode) return;
+    void navigator.clipboard
+      .writeText(shareLink(newExtractCode))
+      .then(() => setNewExtractLinkCopied(true));
   };
 
   // ---------- 网页快照包（§5.6.1）【决策 2026-11-21】 ----------
@@ -534,6 +558,7 @@ export default function Admin() {
       });
       setNewExtractCode(formatCode(code));
       setNewExtractCopied(false);
+      setNewExtractLinkCopied(false);
       setExtractContent("");
       setPageEntry(null);
       setPageRes([]);
@@ -709,9 +734,17 @@ export default function Admin() {
                       <span className="code">{newCode}</span>
                       <small>仅此一次 · 复制后通过独立渠道发给对方</small>
                     </div>
-                    <button onClick={copy}>
-                      {copied ? "已复制" : "复制"}
-                    </button>
+                    <div className="entry-actions" style={{ gap: 10 }}>
+                      <button onClick={copy}>
+                        {copied ? "已复制" : "复制码"}
+                      </button>
+                      <button className="primary" onClick={copyLink}>
+                        {linkCopied ? "已复制" : "复制链接"}
+                      </button>
+                    </div>
+                    <div className="muted" style={{ marginTop: 8 }}>
+                      链接含完整码，点击即可填入；转发链接等于转发码，敏感场景建议只发码。
+                    </div>
                   </>
                 ) : (
                   <h2>无进行中的会话视图 · 创建会话后从列表「进入」</h2>
@@ -952,9 +985,17 @@ export default function Admin() {
                       <span className="code">{newExtractCode}</span>
                       <small>仅此一次 · 复制后通过独立渠道发给对方</small>
                     </div>
-                    <button onClick={copyNewExtractCode}>
-                      {newExtractCopied ? "已复制" : "复制"}
-                    </button>
+                    <div className="entry-actions" style={{ gap: 10 }}>
+                      <button onClick={copyNewExtractCode}>
+                        {newExtractCopied ? "已复制" : "复制码"}
+                      </button>
+                      <button className="primary" onClick={copyNewExtractLink}>
+                        {newExtractLinkCopied ? "已复制" : "复制链接"}
+                      </button>
+                    </div>
+                    <div className="muted" style={{ marginTop: 8 }}>
+                      链接含完整码，点击即可填入；转发链接等于转发码，敏感内容建议只发码。
+                    </div>
                   </>
                 ) : (
                   <h2>对方凭码在本站主页提取；到期或次数用尽即销毁。</h2>

@@ -1,11 +1,14 @@
 /**
  * 主页面（§3）：分格配对码输入（1 前缀框 + 连字符 + 8 位框，仿 Filebox）+ 粘贴按钮 + 加入按钮。
- * 无 logo、无功能介绍、无多余信息；码明文只存 sessionStorage，不进 URL。
+ * 无 logo、无功能介绍、无多余信息；码明文只存 sessionStorage。
  * 按前缀路由【决策】：C=对话码 → /c；E=提取码 → /e（不用 /extract，与 Worker API 路径冲突）。
  * 前缀必填：缺前缀直接报错，不做自动猜测。
  * 【决策 2026-10-24：分格输入】单一隐藏 input 承载状态、视觉切格——粘贴/移动端/输入法行为
  * 由原生 input 保证。顺序填充：输入自动跳下一格，退格回删上一格；粘贴归一化（大写、剥
  * 离分隔符）后从第一格顺序填充；非法字符不拦截、提交时统一校验；保留粘贴按钮与加入按钮。
+ * 【决策 2026-11-21：链接填码】配对码可经分享链接的 hash fragment 进入主页（fragment 不发往
+ * 服务端，预览机器人/日志/Referer 均不可见）：挂载时读入 → 归一化校验 → 填格 → 立即
+ * replaceState 抹掉 URL（码不进历史/地址栏），显示来源提示；填满不自动提交不变，仍需人工确认。
  */
 import { Fragment, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -19,16 +22,36 @@ import { saveCode, saveExtractCode } from "../crypto/crypto";
 
 const TOTAL_LEN = 1 + CODE_RANDOM_LENGTH;
 
+/**
+ * 链接填码【决策 2026-11-21】：读 location.hash，无论有效与否立即抹掉（码不留在
+ * URL/浏览器历史）；格式合法则作为初始码返回并标记来源为链接，非法则静默忽略。
+ */
+function readLinkCode(): { code: string; fromLink: boolean } {
+  const rawHash = window.location.hash.replace(/^#/, "");
+  if (!rawHash) return { code: "", fromLink: false };
+  window.history.replaceState(
+    null,
+    "",
+    window.location.pathname + window.location.search,
+  );
+  const c = normalizeCode(rawHash).slice(0, TOTAL_LEN);
+  return { code: isValidCode(c) ? c : "", fromLink: isValidCode(c) };
+}
+
 export default function Entry() {
-  const [code, setCode] = useState("");
+  const [linkFill] = useState(readLinkCode);
+  const [code, setCode] = useState(linkFill.code);
+  const [fromLink, setFromLink] = useState(linkFill.fromLink);
   const [focused, setFocused] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const nav = useNavigate();
 
-  /** 归一化：大写、剥离空格/连字符/下划线，截断到前缀+随机段总长 */
-  const normalize = (s: string) =>
-    normalizeCode(s).slice(0, TOTAL_LEN);
+  /** 归一化：若粘贴内容含 "#"（整条分享链接）取 fragment 段；大写、剥离空格/连字符/下划线，截断到前缀+随机段总长 */
+  const normalize = (s: string) => {
+    const i = s.indexOf("#");
+    return normalizeCode(i >= 0 ? s.slice(i + 1) : s).slice(0, TOTAL_LEN);
+  };
 
   /** 光标恒定钉在末尾：顺序填充/顺序回删模型，不支持中间插入 */
   const pinCaret = () => {
@@ -69,6 +92,7 @@ export default function Entry() {
       if (!text.trim()) return;
       setCode(normalize(text));
       setErr(null);
+      setFromLink(false);
     } catch {
       setErr("无法读取剪贴板，请手动粘贴");
       inputRef.current?.focus();
@@ -81,6 +105,7 @@ export default function Entry() {
     if (text.trim()) {
       setCode(normalize(text));
       setErr(null);
+      setFromLink(false);
     }
   };
 
@@ -97,7 +122,9 @@ export default function Entry() {
 
       <main className="entry">
         <div className="entry-mark">· · ·</div>
-        <p className="entry-hint">输入配对码</p>
+        <p className="entry-hint">
+          {fromLink ? "已从链接填入 · 确认后进入" : "输入配对码"}
+        </p>
         <div
           className="entry-row"
           onClick={() => inputRef.current?.focus()}
@@ -128,6 +155,7 @@ export default function Entry() {
             onChange={(e) => {
               setCode(normalize(e.target.value));
               setErr(null);
+              setFromLink(false);
             }}
             onPaste={onPasteEvent}
             onKeyDown={(e) => {
