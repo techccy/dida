@@ -11,6 +11,7 @@ import {
   JOIN_MAX_PER_MINUTE,
   JOIN_WINDOW_MS,
   JOIN_BLOCK_MS,
+  PAGE_PACK_DL_MAX_PER_MINUTE,
 } from "@dida/shared";
 import type { Env } from "./env";
 
@@ -28,6 +29,7 @@ interface JoinBucket {
 
 const LOGIN_PREFIX = "login:";
 const JOIN_PREFIX = "join:";
+const DL_PREFIX = "dl:";
 
 export class GuardDO extends DurableObject<Env> {
   /** 基类 ctx 的别名（沿用 state 命名） */
@@ -106,6 +108,31 @@ export class GuardDO extends DurableObject<Env> {
     return { allowed: true, blocked: false };
   }
 
+  /**
+   * 快照包下载尝试（§7.6.1）：同 IP ≤20 次/分钟，独立桶。
+   * 下载重试/断点续传合法高频 → 只限速不封禁；超限返回 false（调用方 429）。
+   */
+  async downloadAttempt(ip: string): Promise<{ allowed: boolean }> {
+    const now = Date.now();
+    const b = (await this.state.storage.get<JoinBucket>(DL_PREFIX + ip)) ?? {
+      n: 0,
+      windowStart: now,
+      blockUntil: 0,
+    };
+    if (now - b.windowStart >= JOIN_WINDOW_MS) {
+      b.n = 0;
+      b.windowStart = now;
+    }
+    if (b.n >= PAGE_PACK_DL_MAX_PER_MINUTE) {
+      this.state.storage.put(DL_PREFIX + ip, b);
+      await this.maybeSetAlarm();
+      return { allowed: false };
+    }
+    b.n += 1;
+    this.state.storage.put(DL_PREFIX + ip, b);
+    return { allowed: true };
+  }
+
   /** 定期清理过期计数，防止无限积累（不留持久记录） */
   async alarm(): Promise<void> {
     const now = Date.now();
@@ -119,6 +146,11 @@ export class GuardDO extends DurableObject<Env> {
       const b = v as JoinBucket;
       if (b.blockUntil <= now && now - b.windowStart >= JOIN_WINDOW_MS)
         this.state.storage.delete(k);
+    }
+    const downloads = await this.state.storage.list({ prefix: DL_PREFIX });
+    for (const [k, v] of downloads) {
+      const b = v as JoinBucket;
+      if (now - b.windowStart >= JOIN_WINDOW_MS) this.state.storage.delete(k);
     }
   }
 

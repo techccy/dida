@@ -27,6 +27,7 @@ import { verifyToken } from "../admin";
 import { getSigningKey, json, type Env } from "../env";
 import type { ExtractStyle } from "../extract-do";
 import type { Ref } from "../registry-do";
+import { handlePackDelete, handlePackUpload } from "./pack";
 
 export const ADMIN_API_PREFIX = "/admin/sessions";
 export const ADMIN_EXTRACT_PREFIX = "/admin/extracts";
@@ -34,6 +35,8 @@ export const ADMIN_EXTRACT_PREFIX = "/admin/extracts";
 /** 密文 b64 上限：32KB 明文 + 16B tag，b64 膨胀 */
 const CT_B64_MAX = Math.ceil(((EXTRACT_MAX_BYTES + 16) * 4) / 3) + 8;
 const HEX64 = /^[0-9a-f]{64}$/;
+/** 快照包 packId（32B hex64，§5.6.1） */
+const PACK_ID_RE = /^[0-9a-f]{64}$/;
 
 async function bearerToken(request: Request): Promise<string | null> {
   const h = request.headers.get("Authorization");
@@ -163,6 +166,16 @@ export async function handleAdminExtractApi(
   const url = new URL(request.url);
   const path = url.pathname;
 
+  // 快照包上传（§5.6.1）：POST /admin/extracts/pagepack（octet-stream 流式 → R2）
+  if (path === ADMIN_EXTRACT_PREFIX + "/pagepack") {
+    return handlePackUpload(request, env);
+  }
+  // 快照包回收（创建失败清理）：DELETE /admin/extracts/pagepack/:packId
+  const packDel = path.match(/^\/admin\/extracts\/pagepack\/([0-9a-f]{64})$/);
+  if (packDel) {
+    return handlePackDelete(request, env, packDel[1]);
+  }
+
   // POST /admin/extracts → 创建（载荷为密文；码明文不经服务端）
   if (path === ADMIN_EXTRACT_PREFIX && request.method === "POST") {
     if (!(await adminOk(request, env))) return json({ error: "unauthorized" }, 401);
@@ -172,6 +185,7 @@ export async function handleAdminExtractApi(
       nonce?: unknown;
       salt?: unknown;
       style?: unknown;
+      pack?: unknown;
       ttlMs?: unknown;
       maxCount?: unknown;
     };
@@ -195,6 +209,23 @@ export async function handleAdminExtractApi(
       return json({ error: "bad-request" }, 400);
     if (body.style !== "packet" && body.style !== "message")
       return json({ error: "bad-request" }, 400);
+
+    // 快照包引用（§5.6.1）：可选；packId 由上传端点签发（hex64），totalSize 用于 GC 元数据
+    let pack: { packId: string; totalSize: number } | undefined;
+    if (body.pack !== undefined) {
+      if (typeof body.pack !== "object" || body.pack === null)
+        return json({ error: "bad-request" }, 400);
+      const p = body.pack as { packId?: unknown; totalSize?: unknown };
+      if (typeof p.packId !== "string" || !PACK_ID_RE.test(p.packId))
+        return json({ error: "bad-request" }, 400);
+      if (
+        typeof p.totalSize !== "number" ||
+        !Number.isInteger(p.totalSize) ||
+        p.totalSize < 0
+      )
+        return json({ error: "bad-request" }, 400);
+      pack = { packId: p.packId, totalSize: p.totalSize };
+    }
 
     let expiresAt: number;
     if (body.ttlMs === undefined) {
@@ -231,6 +262,7 @@ export async function handleAdminExtractApi(
       nonce: body.nonce,
       salt: body.salt,
       style: body.style,
+      pack,
       createdAt,
       expiresAt,
       maxCount,

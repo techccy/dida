@@ -105,6 +105,8 @@ export interface CreateExtractArgs {
   nonce: string;
   salt: string;
   style: "packet" | "message";
+  /** 网页快照包引用（§5.6.1）：可选；纯文本包不带 */
+  pack?: { packId: string; totalSize: number };
   ttlMs?: number;
   maxCount?: number;
 }
@@ -136,6 +138,45 @@ export async function destroyExtract(id: string): Promise<void> {
     method: "POST",
   });
   if (!res.ok && res.status !== 404) throw new ApiError(res.status, "destroy-failed");
+}
+
+// ---------- 网页快照包 API（§5.6.1） ----------
+
+/** 上传快照包（octet-stream 流式；Bearer token 走 Authorization 头，不进 URL） */
+export async function uploadPagePack(
+  pack: Uint8Array,
+): Promise<{ packId: string }> {
+  const token = loadAdminToken();
+  const res = await fetch(apiBase() + "/admin/extracts/pagepack", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: pack.slice().buffer,
+  });
+  if (res.status === 401) {
+    clearAdminToken();
+    window.dispatchEvent(new Event("dida-admin-401"));
+  }
+  if (!res.ok) throw new ApiError(res.status, "pack-upload-failed");
+  return (await res.json()) as { packId: string };
+}
+
+/** 回收快照包（创建失败清理，幂等） */
+export async function deletePagePack(packId: string): Promise<void> {
+  const token = loadAdminToken();
+  await fetch(apiBase() + `/admin/extracts/pagepack/${packId}`, {
+    method: "DELETE",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  }).catch(() => undefined);
+}
+
+/** 下载快照包（能力 URL，§7.6.1：packId 非凭证仅可达密文） */
+export async function downloadPagePack(packId: string): Promise<Uint8Array> {
+  const res = await fetch(apiBase() + `/extract/file/${packId}`);
+  if (!res.ok) throw new ApiError(res.status, "pack-download-failed");
+  return new Uint8Array(await res.arrayBuffer());
 }
 
 /** 提取（无鉴权，凭码兑换密文；码走请求体不进 URL） */

@@ -9,13 +9,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EXTRACT_MAX_BYTES,
   EXTRACT_MAX_COUNT,
+  PAGE_PACK_FILE_MAX_BYTES,
+  PAGE_PACK_MAX_FILES,
+  PAGE_PACK_MAX_TOTAL_BYTES,
   TTL_OPTIONS,
   bytesToB64,
+  encryptPagePack,
   formatCode,
   generateCode,
+  mimeForPath,
   parseCustomCode,
   sha256Hex,
+  validatePagePackFiles,
   type ExtractEnvelope,
+  type ExtractEnvelopeV2,
+  type PagePackInputFile,
   type WatermarkConfig,
 } from "@dida/shared";
 import {
@@ -23,10 +31,12 @@ import {
   apiBase,
   createExtract,
   createSession,
+  deletePagePack,
   destroyExtract,
   endSession,
   listExtracts,
   listSessions,
+  uploadPagePack,
   type ExtractInfo,
   type SessionInfo,
 } from "../api";
@@ -182,11 +192,18 @@ export default function Admin() {
 
   // ---------- 提取包（§5.6） ----------
   const [extracts, setExtracts] = useState<ExtractInfo[]>([]);
+  // 创建模式【决策 2026-11-21，§5.6.1】：文本内容 / 网页快照（Cmd+S 产物渲染交付）
+  const [extractMode, setExtractMode] = useState<"text" | "page">("text");
   const [extractContent, setExtractContent] = useState("");
   const [extractStyle, setExtractStyle] = useState<"packet" | "message">("packet");
   const [extractTtlMs, setExtractTtlMs] = useState<number>(TTL_OPTIONS[4].ms);
   const [extractCount, setExtractCount] = useState(1);
   const [extractBusy, setExtractBusy] = useState(false);
+  // 快照上传阶段提示（打包加密 → 上传 → 创建）
+  const [extractPhase, setExtractPhase] = useState<string | null>(null);
+  // 快照入口 HTML + 资源文件夹（File 对象只在本机内存，不经服务端明文）
+  const [pageEntry, setPageEntry] = useState<File | null>(null);
+  const [pageRes, setPageRes] = useState<File[]>([]);
   const [extractErr, setExtractErr] = useState<string | null>(null);
   const [newExtractCode, setNewExtractCode] = useState<string | null>(null);
   const [newExtractCopied, setNewExtractCopied] = useState(false);
@@ -401,6 +418,139 @@ export default function Admin() {
   const copyNewExtractCode = () => {
     if (!newExtractCode) return;
     void navigator.clipboard.writeText(newExtractCode).then(() => setNewExtractCopied(true));
+  };
+
+  // ---------- 网页快照包（§5.6.1）【决策 2026-11-21】 ----------
+
+  // 提取码生成（纯前端【决策】）：自定义留空 → 随机；非法返回错误文案
+  const pickExtractCode = (): { code: string } | { error: string } => {
+    const raw = customExtractCode.trim();
+    if (raw) {
+      const parsed = parseCustomCode(raw, "extract");
+      if (!parsed)
+        return { error: "自定义提取码无效：需为 E + 8 位（Crockford 字符，不含 I/L/O/U）" };
+      return { code: parsed };
+    }
+    return { code: generateCode("extract") };
+  };
+
+  /** webkitdirectory 属性 React 类型不支持，挂载后手动设置 */
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    const el = folderInputRef.current;
+    if (el) {
+      el.setAttribute("webkitdirectory", "");
+      el.setAttribute("directory", "");
+    }
+  }, []);
+
+  const readPageInput = async (): Promise<
+    { ok: true; entryName: string; files: PagePackInputFile[]; totalSize: number } | { ok: false; error: string }
+  > => {
+    const entry = pageEntry;
+    if (!entry || !/\.(html?|xhtml)$/i.test(entry.name))
+      return { ok: false, error: "请选择 .html/.htm 入口文件" };
+    const all = [entry, ...pageRes];
+    if (all.length > PAGE_PACK_MAX_FILES)
+      return { ok: false, error: `文件数超过 ${PAGE_PACK_MAX_FILES} 上限` };
+    let totalSize = 0;
+    for (const f of all) {
+      if (f.size > PAGE_PACK_FILE_MAX_BYTES)
+        return { ok: false, error: `单文件超过 32MB 上限：${f.name}` };
+      totalSize += f.size;
+    }
+    if (totalSize > PAGE_PACK_MAX_TOTAL_BYTES)
+      return { ok: false, error: "整包超过 64MB 上限" };
+
+    setExtractPhase("读取文件…");
+    const entryBytes = new Uint8Array(await entry.arrayBuffer());
+    const files: PagePackInputFile[] = [
+      { path: entry.name, type: "text/html", bytes: entryBytes },
+    ];
+    for (const f of pageRes) {
+      // webkitRelativePath 保留文件夹层级（如 "mysite_files/img.png"），与 HTML 内相对引用对应
+      const path = f.webkitRelativePath || f.name;
+      files.push({ path, type: mimeForPath(path), bytes: new Uint8Array(await f.arrayBuffer()) });
+    }
+    const bad = validatePagePackFiles(
+      entry.name,
+      files.map((f) => ({ path: f.path, size: f.bytes.length, type: f.type })),
+    );
+    if (bad) return { ok: false, error: bad };
+    return { ok: true, entryName: entry.name, files, totalSize };
+  };
+
+  const createPageExtractPkg = async () => {
+    if (extractBusy) return;
+    setExtractErr(null);
+    const input = await readPageInput();
+    if (!input.ok) {
+      setExtractErr(input.error);
+      return;
+    }
+    const codePick = pickExtractCode();
+    if ("error" in codePick) {
+      setExtractErr(codePick.error);
+      return;
+    }
+    setExtractBusy(true);
+    let packId: string | null = null;
+    try {
+      // 1) 打包加密（DPK1，dataKey 只在本机内存）
+      setExtractPhase("打包加密中…");
+      const dataKey = crypto.getRandomValues(new Uint8Array(32));
+      const pack = await encryptPagePack(dataKey, input.entryName, input.files);
+      // 2) 上传 R2（服务端只见密文与随机 packId）
+      setExtractPhase("上传中…");
+      const up = await uploadPagePack(pack);
+      packId = up.packId;
+      // 3) 信封 v2：可选说明 + 水印配置 + page 元数据（dataKey 藏在加密信封内）
+      setExtractPhase("创建提取包…");
+      const code = codePick.code;
+      const salt = crypto.getRandomValues(new Uint8Array(32));
+      const key = await deriveExtractKey(code, salt);
+      const envelope: ExtractEnvelopeV2 = {
+        v: 2,
+        text: extractContent.trim() || undefined,
+        wm: draftToWmConfig(extractWm),
+        page: {
+          packId,
+          dataKey: bytesToB64(dataKey),
+          totalSize: input.totalSize,
+          fileCount: input.files.length,
+        },
+      };
+      const { nonce, ct } = await encryptExtract(key, JSON.stringify(envelope));
+      const codeHash = await sha256Hex(code);
+      await createExtract({
+        codeHash,
+        ct,
+        nonce,
+        salt: bytesToB64(salt),
+        style: extractStyle,
+        pack: { packId, totalSize: input.totalSize },
+        ttlMs: extractTtlMs,
+        maxCount: extractCount,
+      });
+      setNewExtractCode(formatCode(code));
+      setNewExtractCopied(false);
+      setExtractContent("");
+      setPageEntry(null);
+      setPageRes([]);
+      setCustomExtractCode("");
+      await refresh();
+    } catch (e) {
+      // 创建失败回收 R2 对象，不留孤儿（§5.6.1 上传流程第 4 步）
+      if (packId) void deletePagePack(packId);
+      if (e instanceof ApiError && e.status === 409)
+        setExtractErr("该提取码已被未销毁的提取包占用，请换一个");
+      else if (e instanceof ApiError && e.status === 413)
+        setExtractErr("快照包超过服务端大小上限");
+      else setExtractErr("创建快照包失败");
+    } finally {
+      setExtractPhase(null);
+      setExtractBusy(false);
+    }
   };
 
   const doDestroyExtract = async (id: string) => {
@@ -652,14 +802,58 @@ export default function Admin() {
               <section className="panel">
                 <h2>创建提取包</h2>
                 <div className="field">
+                  <label>交付形态</label>
+                  <select
+                    value={extractMode}
+                    onChange={(e) => {
+                      setExtractMode(e.target.value as "text" | "page");
+                      setExtractErr(null);
+                    }}
+                  >
+                    <option value="text">文本内容（密钥、配置…）</option>
+                    <option value="page">网页快照（Cmd+S 保存的网页，原样渲染）</option>
+                  </select>
+                </div>
+                {extractMode === "page" && (
+                  <div className="field row2">
+                    <div>
+                      <label>入口 HTML（恰 1 个）</label>
+                      <input
+                        type="file"
+                        accept=".html,.htm,.xhtml"
+                        onChange={(e) => {
+                          setPageEntry(e.target.files?.[0] ?? null);
+                          setExtractErr(null);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label>资源文件夹（*_files，可选）</label>
+                      <input
+                        ref={folderInputRef}
+                        type="file"
+                        multiple
+                        onChange={(e) => {
+                          setPageRes(Array.from(e.target.files ?? []));
+                          setExtractErr(null);
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="field">
                   <textarea
                     value={extractContent}
                     onChange={(e) => {
                       setExtractContent(e.target.value);
                       setExtractErr(null);
                     }}
-                    placeholder="输入要交付的内容（密钥、配置、文本…，上限 32KB）"
-                    rows={5}
+                    placeholder={
+                      extractMode === "text"
+                        ? "输入要交付的内容（密钥、配置、文本…，上限 32KB）"
+                        : "随快照附带的文字说明（可选，展示在网页上方，上限 32KB）"
+                    }
+                    rows={extractMode === "page" ? 2 : 5}
                   />
                 </div>
                 <div className="field">
@@ -721,14 +915,27 @@ export default function Admin() {
                 </div>
                 <button
                   className="primary"
-                  onClick={() => void createExtractPkg()}
-                  disabled={extractBusy || !extractContent.trim()}
+                  onClick={() =>
+                    void (extractMode === "text" ? createExtractPkg() : createPageExtractPkg())
+                  }
+                  disabled={
+                    extractBusy ||
+                    (extractMode === "text"
+                      ? !extractContent.trim()
+                      : !pageEntry)
+                  }
                   style={{ width: "100%" }}
                 >
-                  {extractBusy ? "生成中…" : "生成提取码"}
+                  {extractBusy
+                    ? (extractPhase ?? "生成中…")
+                    : extractMode === "text"
+                      ? "生成提取码"
+                      : "打包并生成提取码"}
                 </button>
                 <div className="muted" style={{ marginTop: 10 }}>
                   提取码密钥由码派生，弱码会显著降低抗离线枚举强度，敏感内容建议用随机码。
+                  {extractMode === "page" &&
+                    " 网页快照整包 ≤64MB、单文件 ≤32MB、≤500 个文件；服务端只见密文，文件路径/名称零知识。"}
                 </div>
                 {extractErr && (
                   <div className="banner" style={{ marginTop: 12 }}>

@@ -14,8 +14,15 @@ rules = [
 routes = [
   { pattern = "dida.techccy.com/admin/*", zone_name = "techccy.com" },
   { pattern = "dida.techccy.com/extract", zone_name = "techccy.com" },
+  { pattern = "dida.techccy.com/extract/file/*", zone_name = "techccy.com" },
   { pattern = "dida.techccy.com/ws", zone_name = "techccy.com" },
 ]
+
+# 快照包密文存储（§5.6.1）：bucket 需预先创建（wrangler r2 bucket create dida-packs）。
+# 服务端只存 DPK1 密文（路径/文件名在加密索引内，零知识）；销毁后 10min 闹钟 GC。
+[[r2_buckets]]
+binding = "PACKS"
+bucket_name = "dida-packs"
 
 [vars]
 # 生产 [vars] 只放可公开的账号中心应用凭证（client_id / redirect_uri）。

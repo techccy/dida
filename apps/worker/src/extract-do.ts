@@ -11,6 +11,7 @@
  * 销毁 = 删本 DO 全部存储 + 清闹钟 + 删注册表引用（与 Session DO 全清同构）。
  */
 import { DurableObject } from "cloudflare:workers";
+import { PAGE_PACK_GC_MS } from "@dida/shared";
 import type { Env } from "./env";
 
 export type ExtractStyle = "packet" | "message";
@@ -25,6 +26,8 @@ interface ExtractMeta {
   salt: string;
   /** 呈现样式：packet=截断预览+复制；message=全文只读无复制 */
   style: ExtractStyle;
+  /** 网页快照包引用（§5.6.1，2026-11-21）；纯文本包无此字段 */
+  pack?: { packId: string; totalSize: number };
   createdAt: number;
   expiresAt: number;
   maxCount: number;
@@ -32,6 +35,8 @@ interface ExtractMeta {
 }
 
 const META_KEY = "meta";
+/** 销毁后待 GC 的快照包（§4.3："已销毁待 GC"中间态；10 分钟后闹钟删 R2 对象） */
+const GC_KEY = "gc";
 
 export class ExtractDO extends DurableObject<Env> {
   private get state(): DurableObjectState {
@@ -45,6 +50,7 @@ export class ExtractDO extends DurableObject<Env> {
     nonce: string;
     salt: string;
     style: ExtractStyle;
+    pack?: { packId: string; totalSize: number };
     createdAt: number;
     expiresAt: number;
     maxCount: number;
@@ -78,7 +84,11 @@ export class ExtractDO extends DurableObject<Env> {
     | { error: "gone" }
   > {
     const meta = await this.state.storage.get<ExtractMeta>(META_KEY);
-    if (!meta || meta.codeHash !== codeHash) return { error: "gone" };
+    if (!meta) {
+      await this.gcSweep();
+      return { error: "gone" };
+    }
+    if (meta.codeHash !== codeHash) return { error: "gone" };
     const now = Date.now();
     if (now >= meta.expiresAt) {
       await this.destroy();
@@ -117,6 +127,7 @@ export class ExtractDO extends DurableObject<Env> {
   }> {
     const meta = await this.state.storage.get<ExtractMeta>(META_KEY);
     if (!meta) {
+      await this.gcSweep();
       return {
         status: "destroyed",
         createdAt: 0,
@@ -156,10 +167,13 @@ export class ExtractDO extends DurableObject<Env> {
     return { ok: true };
   }
 
-  /** 到期闹钟：销毁（§7.4 同构） */
+  /** 到期闹钟：销毁（§7.4 同构）；meta 已删时执行快照包 GC（§5.6.1） */
   async alarm() {
     const meta = await this.state.storage.get<ExtractMeta>(META_KEY);
-    if (!meta) return;
+    if (!meta) {
+      await this.gcSweep();
+      return;
+    }
     if (meta.expiresAt > Date.now() + 2000) {
       // 迟到触发（异常场景）：重新排程
       await this.state.storage.setAlarm(meta.expiresAt);
@@ -168,11 +182,35 @@ export class ExtractDO extends DurableObject<Env> {
     await this.destroy();
   }
 
-  /** 销毁 = 删全部存储 + 清闹钟 + 删注册表引用 */
+  /**
+   * GC 闹钟/惰性兜底：删除宽限窗口结束的快照包 R2 对象（§4.3）。
+   * best-effort：R2 删除失败时保留 gc 标记，下次闹钟/惰性调用重试。
+   */
+  private async gcSweep(): Promise<void> {
+    const gc = await this.state.storage.get<{ packId: string }>(GC_KEY);
+    if (!gc) return;
+    try {
+      await this.env.PACKS.delete(gc.packId);
+      this.state.storage.delete(GC_KEY);
+    } catch {
+      /* R2 删除失败：保留标记，等待下次触发重试 */
+    }
+  }
+
+  /**
+   * 销毁 = 删全部存储 + 清闹钟 + 删注册表引用。
+   * 带快照包时【决策 2026-11-21】：不立即删 R2 对象——写 gc 标记并设
+   * now+10min 闹钟（弱网重试宽限窗口，§4.3）；码已死，仅延长密文对象存活。
+   */
   private async destroy() {
     const meta = await this.state.storage.get<ExtractMeta>(META_KEY);
     this.state.storage.delete(META_KEY);
-    this.state.storage.deleteAlarm();
+    if (meta?.pack) {
+      this.state.storage.put(GC_KEY, { packId: meta.pack.packId });
+      await this.state.storage.setAlarm(Date.now() + PAGE_PACK_GC_MS);
+    } else {
+      this.state.storage.deleteAlarm();
+    }
     if (meta) {
       try {
         await this.env.REGISTRY_DO.getByName("main").deleteRef(

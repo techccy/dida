@@ -20,6 +20,7 @@ import {
 } from "@dida/shared";
 import { extractRedeem } from "../api";
 import Watermark, { deviceInfo } from "../ui/Watermark";
+import PageSnapshot from "../ui/PageSnapshot";
 import {
   clearExtractCache,
   clearExtractCode,
@@ -69,8 +70,8 @@ export default function Extract() {
         const payload = await extractRedeem(code);
         const key = await deriveExtractKey(code, b64ToBytes(payload.salt));
         const raw = await decryptExtract(key, payload.nonce, payload.ct);
-        // 明文信封解析（§5.7）：v1 = JSON({v,text,wm})；旧版包为裸文本（无水印）
-        const { text, wm } = parseExtractEnvelope(raw);
+        // 明文信封解析（§5.7/§5.6.1）：v1 = JSON({v,text,wm})；v2 含 page = 快照包；旧版为裸文本
+        const { text, wm, page } = parseExtractEnvelope(raw);
         const next: ExtractCache = {
           code,
           text,
@@ -78,6 +79,14 @@ export default function Extract() {
           remaining: payload.remaining,
           expiresAt: payload.expiresAt,
           wm: { cfg: wm, ip: payload.ip, ts: payload.ts },
+          page: page
+            ? {
+                packId: page.packId,
+                dataKey: page.dataKey,
+                totalSize: page.totalSize,
+                fileCount: page.fileCount,
+              }
+            : undefined,
         };
         saveExtractCache(next);
         if (!cancelled) {
@@ -172,7 +181,26 @@ export default function Extract() {
             </span>
           </div>
 
-          {cache.style === "packet" ? (
+          {cache.page ? (
+            <>
+              {cache.text.trim() !== "" &&
+                (cache.style === "packet" ? (
+                  <>
+                    <div className="pk-label">📦 附言 · 内容已加密传输，仅在本页解密</div>
+                    <div className="pv-box">{packetPreview(cache.text)}</div>
+                    <button className="primary copy-all" onClick={copy}>
+                      {copied ? "已复制" : "复制全文"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="pk-label">🔒 附言 · 只读展示，不提供复制</div>
+                    <div className="ro-body">{cache.text}</div>
+                  </>
+                ))}
+              <PageSnapshot page={cache.page} />
+            </>
+          ) : cache.style === "packet" ? (
             <>
               <div className="pk-label">📦 信息包 · 内容已加密传输，仅在本页解密</div>
               <div className="pv-box">{packetPreview(cache.text)}</div>

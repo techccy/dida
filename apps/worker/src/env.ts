@@ -12,6 +12,8 @@ export interface Env {
   GUARD_DO: DurableObjectNamespace<GuardDO>;
   REGISTRY_DO: DurableObjectNamespace<RegistryDO>;
   EXTRACT_DO: DurableObjectNamespace<ExtractDO>;
+  /** 快照包密文存储（R2 binding，§5.6.1；对象 key = 32B hex64 packId） */
+  PACKS: R2Bucket;
   /** 账号中心应用凭证（可公开）：account.techccy.com/admin「应用管理」创建 */
   ACCOUNT_CLIENT_ID?: string;
   /** OAuth 回调地址：必须与账号中心应用白名单完全一致（含协议/路径/无尾斜杠） */

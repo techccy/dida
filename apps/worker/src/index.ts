@@ -13,6 +13,7 @@
 import { handleAdminApi, handleAdminExtractApi } from "./routes/admin";
 import { handleOAuthCallback, handleOAuthStart } from "./routes/oauth";
 import { handleExtract, EXTRACT_PATH } from "./routes/extract";
+import { handlePackDownload } from "./routes/pack";
 import { handleWsUpgrade, WS_PATH } from "./ws";
 import { corsHeaders, json, type Env } from "./env";
 
@@ -54,6 +55,11 @@ export default {
 
     if (path === EXTRACT_PATH && request.method === "POST") {
       return handleExtract(request, env);
+    }
+
+    // 快照包能力 URL 下载（§5.6.1/§7.6.1）：packId=256-bit 随机 id，非凭证
+    if (path.startsWith("/extract/file/") && request.method === "GET") {
+      return handlePackDownload(request, env);
     }
 
     // Workers Routes 不分方法：/extract 的 GET 也落到 Worker。

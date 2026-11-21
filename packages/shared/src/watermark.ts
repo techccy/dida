@@ -52,8 +52,11 @@ export function isValidWatermarkConfig(v: unknown): v is WatermarkConfig | null 
 }
 
 /**
- * 提取内容加密明文信封（v1）：明文 = JSON({v:1, text, wm?})。
- * 旧版（本版本之前）提取包的明文为裸文本——解析失败或无 v:1 标记时按裸文本
+ * 提取内容加密明文信封：
+ * - v1：明文 = JSON({v:1, text, wm?})——纯文本包
+ * - v2【2026-11-21，§5.6.1】：明文 = JSON({v:2, text?, wm?, page?})——网页快照包
+ *   （text 为可选说明文字；page 为快照引用元数据，解密后凭其下载/解密 pack）
+ * 旧版（本版本之前）提取包的明文为裸文本——解析失败或无 v 标记时按裸文本
  * 处理（无水印），保证旧包在滚动发布期间仍可正常提取。
  */
 export interface ExtractEnvelope {
@@ -62,18 +65,62 @@ export interface ExtractEnvelope {
   wm?: WatermarkConfig | null;
 }
 
+/** v2 信封：网页快照包（text 为可选说明文字；page 必带） */
+export interface ExtractEnvelopeV2 {
+  v: 2;
+  text?: string;
+  wm?: WatermarkConfig | null;
+  page: PagePackRef;
+}
+
 /**
- * 解析提取明文：v1 信封 → { text, wm }；旧版裸文本 → { text: 原文, wm: null }。
- * v1 信封但 wm 形状非法时保留 text、仅丢弃 wm（提取页不因水印配置损坏拒绝展示）。
+ * 快照包引用元数据（v2 信封 page 字段）：packId/dataKey 都是服务端不可解读的
+ * 随机值（packId=32B hex64 R2 对象 key；dataKey=32B b64），服务端零知识。
  */
-export function parseExtractEnvelope(
-  raw: string,
-): { text: string; wm: WatermarkConfig | null } {
+export interface PagePackRef {
+  /** R2 对象 key（32B hex64），能力 URL 路径段（非凭证，仅可达密文） */
+  packId: string;
+  /** pack 加密密钥（32B b64）——只在加密信封内 */
+  dataKey: string;
+  /** pack 明文总字节数（下载进度/展示用） */
+  totalSize: number;
+  /** 文件数（含 HTML 入口） */
+  fileCount: number;
+}
+
+const HEX64 = /^[0-9a-f]{64}$/;
+
+export function isValidPagePackRef(v: unknown): v is PagePackRef {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  if (typeof r.packId !== "string" || !HEX64.test(r.packId)) return false;
+  if (typeof r.dataKey !== "string" || r.dataKey.length === 0 || r.dataKey.length > 128) return false;
+  if (typeof r.totalSize !== "number" || !Number.isInteger(r.totalSize) || r.totalSize < 0)
+    return false;
+  if (typeof r.fileCount !== "number" || !Number.isInteger(r.fileCount) || r.fileCount < 1)
+    return false;
+  return true;
+}
+
+export interface ParsedExtractEnvelope {
+  text: string;
+  wm: WatermarkConfig | null;
+  /** v2 快照包引用；v1/旧版包为 undefined */
+  page?: PagePackRef;
+}
+
+/**
+ * 解析提取明文：v1/v2 信封 → 结构化结果；旧版裸文本 → { text: 原文, wm: null }。
+ * wm 形状非法时保留 text、仅丢弃 wm（提取页不因水印配置损坏拒绝展示）。
+ * page 字段形状非法时丢弃 page（按纯文本包处理，不拒绝整个包）。
+ */
+export function parseExtractEnvelope(raw: string): ParsedExtractEnvelope {
   try {
     const obj = JSON.parse(raw) as {
       v?: unknown;
       text?: unknown;
       wm?: unknown;
+      page?: unknown;
     };
     if (obj.v === 1 && typeof obj.text === "string") {
       return {
@@ -81,6 +128,15 @@ export function parseExtractEnvelope(
         wm: isValidWatermarkConfig(obj.wm ?? null)
           ? (obj.wm ?? null) as WatermarkConfig | null
           : null,
+      };
+    }
+    if (obj.v === 2) {
+      return {
+        text: typeof obj.text === "string" ? obj.text : "",
+        wm: isValidWatermarkConfig(obj.wm ?? null)
+          ? (obj.wm ?? null) as WatermarkConfig | null
+          : null,
+        page: isValidPagePackRef(obj.page) ? obj.page : undefined,
       };
     }
   } catch {

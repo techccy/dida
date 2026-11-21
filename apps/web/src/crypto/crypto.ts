@@ -431,16 +431,32 @@ export interface ExtractCache {
   expiresAt: number;
   /** 水印（§5.7）：密文内配置 + 兑换时的服务端环境（旧版包无此字段 = 无水印） */
   wm?: { cfg: WatermarkConfig | null; ip?: string; ts?: number };
+  /**
+   * 网页快照引用（§5.6.1，信封 v2）：存在 = 快照包。
+   * 缓存 dataKey/packId 使刷新后不重复兑换、直接重下载 pack 重渲染
+   * （GC 宽限窗口内有效，超窗报错）。
+   */
+  page?: { packId: string; dataKey: string; totalSize: number; fileCount: number };
 }
 
 export function saveExtractCache(cache: ExtractCache): void {
   ssSet(SS_KEYS.EXTRACT, cache);
 }
 
+const HEX64_RE = /^[0-9a-f]{64}$/;
+
 export function loadExtractCache(code: string): ExtractCache | null {
   const c = ssGet<ExtractCache>(SS_KEYS.EXTRACT);
   if (!c || c.code !== code) return null;
   if (typeof c.text !== "string" || (c.style !== "packet" && c.style !== "message"))
+    return null;
+  if (
+    c.page !== undefined &&
+    (typeof c.page.packId !== "string" ||
+      !HEX64_RE.test(c.page.packId) ||
+      typeof c.page.dataKey !== "string" ||
+      c.page.dataKey.length === 0)
+  )
     return null;
   return c;
 }
